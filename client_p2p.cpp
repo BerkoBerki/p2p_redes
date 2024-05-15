@@ -27,7 +27,7 @@ void leer_mjes(int s, Msg &msg, Clients &clients_)
         clients_ = msg.payload.client;
     }
 }
-void enviar_mje(Clients &clients_)
+void enviar_mje(Clients &clients_, const char * myname)
 {
     char buffer[1024];
     struct hostent *some_peer;
@@ -48,7 +48,7 @@ void enviar_mje(Clients &clients_)
         fgets(buffer, 1024, stdin);
         for (int i = 0; i < 10; i++)
         {
-            if (clients_.peers[i].socket != 0 && clients_.peers[i].socket < 15)
+            if (clients_.peers[i].socket != 0 && clients_.peers[i].username != myname)
             {
                 some_peer = gethostbyname(clients_.peers[i].address);
                 bzero((char *)&serverAddr, sizeof(serverAddr));
@@ -129,7 +129,7 @@ int main(int argc, char *argv[])
     cout << "my name is " << myname << endl;
 
     thread rec_cli(leer_mjes, s, std::ref(msg_clients), std::ref(clients));
-    thread env_mje(enviar_mje, std::ref(clients));
+    thread env_mje(enviar_mje, std::ref(clients), myname);
     thread rec_mje(recibir_mje);
     rec_cli.join();
     env_mje.join();

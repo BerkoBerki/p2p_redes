@@ -29,7 +29,6 @@ typedef struct __attribute__((__packed__))
     char text[255];
 } VString;
 
-
 typedef struct __attribute__((__packed__))
 {
     int socket;
@@ -37,7 +36,6 @@ typedef struct __attribute__((__packed__))
     char address[255];
     char username[255];
 } Peer;
-
 
 typedef struct __attribute__((__packed__))
 {
@@ -56,10 +54,10 @@ typedef struct __attribute__((__packed__))
 
 } Msg;
 
-inline static void setSocket(Peer *peer_, int socket) {
+inline static void setSocket(Peer *peer_, int socket)
+{
     peer_->socket = socket;
 }
-
 
 inline static void setPeer(Peer *peer_, int port, const char *usern, const char *address)
 {
@@ -80,12 +78,11 @@ inline static void setMsgClients(Msg *msg, Clients *clients_)
 {
     msg->hdr.size8 = 0;
     msg->hdr.type = TYPE_CLIENTS;
-    for(int i = 0; i< 10; i++) {
-        if(clients_->peers[i].socket != 0  && clients_->peers[i].socket < 15) {
-            setSocket(&msg->payload.client.peers[i], clients_->peers[i].socket);
-            setPeer(&msg->payload.client.peers[i], clients_->peers[i].port, clients_->peers[i].username, clients_->peers[i].address);
-            msg->hdr.size8 = msg->hdr.size8 + htons(sizeof(Header) + sizeof(Peer));
-        }
+    for (int i = 0; i < 10; i++)
+    {
+        setSocket(&msg->payload.client.peers[i], clients_->peers[i].socket);
+        setPeer(&msg->payload.client.peers[i], clients_->peers[i].port, clients_->peers[i].username, clients_->peers[i].address);
+        msg->hdr.size8 = msg->hdr.size8 + htons(sizeof(Header) + sizeof(Peer));
     }
 }
 
@@ -145,17 +142,19 @@ int getType(Msg *msg)
     }
 }
 
-inline static void showClients(Clients *clients) {
-    for(int i = 0; i<10; i++) {
-        if(clients->peers[i].socket>0 && clients->peers[i].socket < 20) { // magic number :D
-            std::cout << "Socket: " << clients->peers[i].socket << '\n';
+inline static void showClients(Clients *clients)
+{
+    for (int i = 0; i < 10; i++)
+    {
+        if (clients->peers[i].socket != 0)
+        { 
             std::cout << "Usuario: " << getUserName(&clients->peers[i]) << '\n';
             std::cout << "Puerto: " << getPort(&clients->peers[i]) << '\n';
             std::cout << "Direccion: " << getAddress(&clients->peers[i]) << '\n';
         }
     }
+    std::cout << "clientes ok\n";
 }
-
 
 int sendMsg(int sockfd, const Msg *msg)
 {
@@ -177,7 +176,7 @@ int sendMsg(int sockfd, const Msg *msg)
 int recvMsg(int sockfd, Msg *msg)
 {
 
-    size_t toRecv = sizeof(Header); 
+    size_t toRecv = sizeof(Header);
     ssize_t recvd;
     uint8_t *ptr = (uint8_t *)&msg->hdr;
     int headerRecvd = 0;

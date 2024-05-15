@@ -20,6 +20,7 @@ using namespace std;
 
 #define PORT 8888
 
+
 typedef struct
 {
     int socket;
@@ -45,7 +46,10 @@ int main(int argc, char *argv[])
     for (i = 0; i < max_clients; i++)
     {
         setSocket(&clients.peers[i], 0);
+        setPeer(&clients.peers[i], 0, "null", "null");
     }
+
+    showClients(&clients);
 
     if ((cs = socket(AF_INET, SOCK_STREAM, 0)) == 0)
     {
@@ -121,8 +125,6 @@ int main(int argc, char *argv[])
             bzero(buffer, 1024);
             read(new_socket, buffer, 1024);
             printf("%s se ha conectado. Socket: %d. IP: %s. Puerto: %d\n", buffer, new_socket, inet_ntoa(address.sin_addr), ntohs(address.sin_port));
-            setMsgClients(&msg_clients, &clients);
-            //sendMsg(new_socket, &msg_clients);
 
             for (i = 0; i < max_clients; i++)
             {
@@ -140,7 +142,7 @@ int main(int argc, char *argv[])
 
             for (i = 0; i < max_clients; i++)
             {
-                if (clients.peers[i].socket != 0 && clients.peers[i].socket < 15)
+                if (clients.peers[i].socket != 0)
                     cout << sendMsg(clients.peers[i].socket, &msg_clients) << '\n';
             }
         }
@@ -158,10 +160,11 @@ int main(int argc, char *argv[])
                     printf("%s desconectado. IP: %s. Puerto: %d.\n", getUserName(&clients.peers[i]), inet_ntoa(address.sin_addr), ntohs(address.sin_port));
 
                     setSocket(&clients.peers[i], 0);
-                    setMsgClients(&msg, &clients);
+                    setPeer(&clients.peers[i],0, "null", "null");
+                    setMsgClients(&msg_clients, &clients);
                     for (int j = 0; j < max_clients; j++)
                     {
-                        if (clients.peers[j].socket != 0 && clients.peers[j].socket < 15)
+                        if (clients.peers[j].socket != 0)
                             cout << sendMsg(clients.peers[j].socket, &msg_clients) << '\n';
                     }
                     close(aux_s);
