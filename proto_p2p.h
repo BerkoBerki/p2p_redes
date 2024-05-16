@@ -1,8 +1,12 @@
 #include <stdint.h>
+#include <fstream>
 #include <assert.h>
 #include <iostream>
 #include <string.h>
 #include <arpa/inet.h>
+#include <string>
+#include <openssl/sha.h>
+using namespace std;
 
 typedef enum
 {
@@ -25,9 +29,22 @@ typedef struct __attribute__((__packed__))
 
 typedef struct __attribute__((__packed__))
 {
-    uint8_t len8;
-    char text[255];
-} VString;
+    unsigned char hash[20];
+} Hash;
+
+typedef struct __attribute__((__packed__))
+{
+    int length;                // tamano del archivo
+    char name[255];            // path y nombre
+    int piece_length = 262144; // tamano de las piezas (bytes)
+    Hash pieces[10];
+} Info;
+
+typedef struct __attribute__((__packed__))
+{
+    // char announce[255];
+    Info info;
+} Torrent;
 
 typedef struct __attribute__((__packed__))
 {
@@ -144,17 +161,48 @@ int getType(Msg *msg)
 
 inline static void showClients(Clients *clients)
 {
+    std::cout << "✧✧✧PEERS CONECTADOS:✧✧✧" << std::endl;
     for (int i = 0; i < 10; i++)
     {
         if (clients->peers[i].socket != 0)
-        { 
+        {
             std::cout << "Usuario: " << getUserName(&clients->peers[i]) << '\n';
             std::cout << "Puerto: " << getPort(&clients->peers[i]) << '\n';
             std::cout << "Direccion: " << getAddress(&clients->peers[i]) << '\n';
         }
     }
-    std::cout << "clientes ok\n";
 }
+
+void setInfo(Info *info, int length_, const char *name)
+{   
+
+    ifstream file(name, ios::binary);
+    assert(file.is_open());
+    info->length = length_;
+    memcpy(info->name, name, strlen(name));
+    int num_hashes;
+    num_hashes = length_ / info->piece_length;
+    for (int i = 0; i < num_hashes; i++)
+    {
+        char bytes[info->piece_length];
+        for (int j = 0; j < info->piece_length; j++)
+        {
+            file.get(bytes[j]);
+        }
+        SHA1((unsigned char *)bytes, sizeof(bytes) - 1, info->pieces[i].hash);
+    }
+}
+void createTorrent(Torrent *torrent, Info info)
+{
+    torrent->info = info;
+}
+
+void showTorrInfo(Torrent torrent) {
+    cout << "File is located at: " << torrent.info.name << endl;
+    cout << "File size: " << torrent.info.length << " bytes\n";
+    cout << "First hash: " << torrent.info.pieces[0].hash;
+}
+
 
 int sendMsg(int sockfd, const Msg *msg)
 {

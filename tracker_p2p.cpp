@@ -31,10 +31,8 @@ typedef struct
 int main(int argc, char *argv[])
 {
 
-    // Variables:
     Msg msg_clients;
     Clients clients;
-    Msg msg; // buffer?
     int cs, i;
     fd_set readfds;
     int max_clients = 10;
@@ -74,7 +72,7 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
 
-    printf("Sala creada en el puerto %d. \n", PORT);
+    printf("Red creada en el puerto %d. \n", PORT);
 
     if (listen(cs, 6) < 0)
     {
@@ -82,7 +80,7 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
 
-    puts("Esperando jugadores ...");
+    puts("Esperando peers ...");
 
     int max_aux_s, aux_s, activ, new_socket;
 
@@ -124,7 +122,7 @@ int main(int argc, char *argv[])
             }
             bzero(buffer, 1024);
             read(new_socket, buffer, 1024);
-            printf("%s se ha conectado. Socket: %d. IP: %s. Puerto: %d\n", buffer, new_socket, inet_ntoa(address.sin_addr), ntohs(address.sin_port));
+            printf("%s se ha conectado a la red. Socket: %d. IP: %s. Puerto: %d\n", buffer, new_socket, inet_ntoa(address.sin_addr), ntohs(address.sin_port));
 
             for (i = 0; i < max_clients; i++)
             {
@@ -132,7 +130,6 @@ int main(int argc, char *argv[])
                 {
                     setSocket(&clients.peers[i], new_socket);
                     setPeer(&clients.peers[i], ntohs(address.sin_port), buffer, inet_ntoa(address.sin_addr));
-                    cout << "Peer ok\n";
                     break;
                 }
             
@@ -143,9 +140,10 @@ int main(int argc, char *argv[])
             for (i = 0; i < max_clients; i++)
             {
                 if (clients.peers[i].socket != 0)
-                    cout << sendMsg(clients.peers[i].socket, &msg_clients) << '\n';
+                    sendMsg(clients.peers[i].socket, &msg_clients);
             }
         }
+
         bzero(buffer, 1024);
         for (i = 0; i < max_clients; i++)
         {
@@ -165,9 +163,12 @@ int main(int argc, char *argv[])
                     for (int j = 0; j < max_clients; j++)
                     {
                         if (clients.peers[j].socket != 0)
-                            cout << sendMsg(clients.peers[j].socket, &msg_clients) << '\n';
+                            sendMsg(clients.peers[j].socket, &msg_clients);
                     }
                     close(aux_s);
+                }
+                else {
+                    cout << buffer;
                 }
             }
         } 
