@@ -37,14 +37,19 @@ typedef struct __attribute__((__packed__))
     int length;                // tamano del archivo
     char name[255];            // path y nombre
     int piece_length = 262144; // tamano de las piezas (bytes)
+    int num_pieces;
     Hash pieces[10];
 } Info;
 
 typedef struct __attribute__((__packed__))
 {
-    // char announce[255];
     Info info;
 } Torrent;
+
+typedef struct __attribute__((__packed__))
+{
+    char filename[255];
+} File;
 
 typedef struct __attribute__((__packed__))
 {
@@ -52,7 +57,29 @@ typedef struct __attribute__((__packed__))
     int port;
     char address[255];
     char username[255];
+    File files[10];
 } Peer;
+
+void inic_files(Peer *peer_)
+{
+    for (int i = 0; i < 10; i++)
+    {
+        memcpy(&peer_->files[i].filename, "null", strlen("null"));
+    }
+}
+
+void addFile(Peer *peer_, const char *filename)
+{
+    for (int i = 0; i < 10; i++)
+    {
+        if (strcmp(peer_->files[i].filename, "null") == 0)
+        {
+            bzero(peer_->files[i].filename, 255);
+            memcpy(&peer_->files[i].filename, filename, strlen(filename));
+            break;
+        }
+    }
+}
 
 typedef struct __attribute__((__packed__))
 {
@@ -83,13 +110,13 @@ inline static void setPeer(Peer *peer_, int port, const char *usern, const char 
     memcpy(peer_->address, address, strlen(address));
 }
 
-inline static void setMsgPeer(Msg *msg, Peer *peer_)
+/* inline static void setMsgPeer(Msg *msg, Peer *peer_)
 {
     msg->hdr.type = TYPE_USER;
     setSocket(&msg->payload.user, peer_->socket);
     setPeer(&msg->payload.user, peer_->port, peer_->username, peer_->address);
     msg->hdr.size8 = htons(sizeof(Header) + sizeof(Peer));
-}
+} */
 
 inline static void setMsgClients(Msg *msg, Clients *clients_)
 {
@@ -99,6 +126,7 @@ inline static void setMsgClients(Msg *msg, Clients *clients_)
     {
         setSocket(&msg->payload.client.peers[i], clients_->peers[i].socket);
         setPeer(&msg->payload.client.peers[i], clients_->peers[i].port, clients_->peers[i].username, clients_->peers[i].address);
+        memcpy(&msg->payload.client.peers[i].files, clients_->peers[i].files, 10 * sizeof(File));
         msg->hdr.size8 = msg->hdr.size8 + htons(sizeof(Header) + sizeof(Peer));
     }
 }
@@ -161,7 +189,7 @@ int getType(Msg *msg)
 
 inline static void showClients(Clients *clients)
 {
-    std::cout << "✧✧✧PEERS CONECTADOS:✧✧✧" << std::endl;
+    std::cout << "✧✧✧ PEERS CONECTADOS: ✧✧✧" << std::endl;
     for (int i = 0; i < 10; i++)
     {
         if (clients->peers[i].socket != 0)
@@ -169,19 +197,27 @@ inline static void showClients(Clients *clients)
             std::cout << "Usuario: " << getUserName(&clients->peers[i]) << '\n';
             std::cout << "Puerto: " << getPort(&clients->peers[i]) << '\n';
             std::cout << "Direccion: " << getAddress(&clients->peers[i]) << '\n';
+            std::cout << "First file: " << clients->peers[i].files[0].filename << '\n';
         }
     }
 }
 
-void setInfo(Info *info, int length_, const char *name)
-{   
-
+void setInfo(Info *info, const char *name)
+{
     ifstream file(name, ios::binary);
     assert(file.is_open());
-    info->length = length_;
+    char byte;
+    info->length = 0;
+    while (file.get(byte))
+        info->length++;
+    file.close();
+    file.open(name, ios::binary);
+    assert(file.is_open());
+    bzero(info->name, 255);
     memcpy(info->name, name, strlen(name));
     int num_hashes;
-    num_hashes = length_ / info->piece_length;
+    num_hashes = info->length / info->piece_length;
+    info->num_pieces = num_hashes;
     for (int i = 0; i < num_hashes; i++)
     {
         char bytes[info->piece_length];
@@ -191,18 +227,18 @@ void setInfo(Info *info, int length_, const char *name)
         }
         SHA1((unsigned char *)bytes, sizeof(bytes) - 1, info->pieces[i].hash);
     }
+    file.close();
 }
 void createTorrent(Torrent *torrent, Info info)
 {
     torrent->info = info;
 }
 
-void showTorrInfo(Torrent torrent) {
+void showTorrInfo(Torrent torrent)
+{
     cout << "File is located at: " << torrent.info.name << endl;
     cout << "File size: " << torrent.info.length << " bytes\n";
-    cout << "First hash: " << torrent.info.pieces[0].hash;
 }
-
 
 int sendMsg(int sockfd, const Msg *msg)
 {
@@ -223,7 +259,6 @@ int sendMsg(int sockfd, const Msg *msg)
 
 int recvMsg(int sockfd, Msg *msg)
 {
-
     size_t toRecv = sizeof(Header);
     ssize_t recvd;
     uint8_t *ptr = (uint8_t *)&msg->hdr;

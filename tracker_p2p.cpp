@@ -20,7 +20,6 @@ using namespace std;
 
 #define PORT 8888
 
-
 typedef struct
 {
     int socket;
@@ -45,6 +44,7 @@ int main(int argc, char *argv[])
     {
         setSocket(&clients.peers[i], 0);
         setPeer(&clients.peers[i], 0, "null", "null");
+        inic_files(&clients.peers[i]);
     }
 
     showClients(&clients);
@@ -114,7 +114,6 @@ int main(int argc, char *argv[])
 
         if (FD_ISSET(cs, &readfds))
         {
-
             if ((new_socket = accept(cs, (struct sockaddr *)&address, (socklen_t *)&addrlen)) < 0)
             {
                 perror("Error en el accept");
@@ -132,7 +131,6 @@ int main(int argc, char *argv[])
                     setPeer(&clients.peers[i], ntohs(address.sin_port), buffer, inet_ntoa(address.sin_addr));
                     break;
                 }
-            
             }
 
             setMsgClients(&msg_clients, &clients);
@@ -144,21 +142,21 @@ int main(int argc, char *argv[])
             }
         }
 
-        bzero(buffer, 1024);
+        
         for (i = 0; i < max_clients; i++)
         {
             aux_s = clients.peers[i].socket;
 
             if (FD_ISSET(aux_s, &readfds))
             {
-
+                bzero(buffer, 1024);
                 if ((rd = read(aux_s, buffer, 1024)) == 0)
                 {
                     getpeername(aux_s, (struct sockaddr *)&address, (socklen_t *)&addrlen);
                     printf("%s desconectado. IP: %s. Puerto: %d.\n", getUserName(&clients.peers[i]), inet_ntoa(address.sin_addr), ntohs(address.sin_port));
 
                     setSocket(&clients.peers[i], 0);
-                    setPeer(&clients.peers[i],0, "null", "null");
+                    setPeer(&clients.peers[i], 0, "null", "null");
                     setMsgClients(&msg_clients, &clients);
                     for (int j = 0; j < max_clients; j++)
                     {
@@ -167,11 +165,35 @@ int main(int argc, char *argv[])
                     }
                     close(aux_s);
                 }
-                else {
-                    cout << buffer;
+                else
+                {
+                    if (strcmp(buffer, "addfile") == 0)
+                    {
+                        read(aux_s, buffer, 1024);
+                        addFile(&clients.peers[i], buffer);
+                        cout << clients.peers[i].username << " agrego " << buffer << " a su lista de archivos\n";
+                        setMsgClients(&msg_clients, &clients);
+                        bzero(buffer, 1024);
+                    }
+                    if (strcmp(buffer, "reqf") == 0)
+                    {
+                        bzero(buffer, 1024);
+                        read(aux_s, buffer, 1024);
+                        for (int i = 0; i < max_clients; i++)
+                        {
+                            if (clients.peers[i].socket != 0)
+                            {
+                                for (int j = 0; j < 10; j++)
+                                {
+                                    if(strcmp(clients.peers[i].files[j].filename, buffer) == 0)
+                                        cout << "Lo tiene " << clients.peers[i].username << endl;
+                                }
+                            }
+                        }
+                    }
                 }
             }
-        } 
+        }
     }
     return 0;
 }
