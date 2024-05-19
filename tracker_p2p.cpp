@@ -31,6 +31,7 @@ int main(int argc, char *argv[])
 {
 
     Msg msg_clients;
+    Msg msg_torr;
     Clients clients;
     int cs, i;
     fd_set readfds;
@@ -39,6 +40,12 @@ int main(int argc, char *argv[])
     struct sockaddr_in address;
     int rd;
     char buffer[1024];
+
+    Info info_sv;
+    Torrent torrents_sv[10];
+
+    setInfo(&info_sv, "Tux.bmp", PIECE_LEN, 1);
+    createTorrent(&torrents_sv[0], info_sv);
 
     for (i = 0; i < max_clients; i++)
     {
@@ -132,17 +139,8 @@ int main(int argc, char *argv[])
                     break;
                 }
             }
-
-            setMsgClients(&msg_clients, &clients);
-
-            for (i = 0; i < max_clients; i++)
-            {
-                if (clients.peers[i].socket != 0)
-                    sendMsg(clients.peers[i].socket, &msg_clients);
-            }
         }
 
-        
         for (i = 0; i < max_clients; i++)
         {
             aux_s = clients.peers[i].socket;
@@ -158,11 +156,6 @@ int main(int argc, char *argv[])
                     setSocket(&clients.peers[i], 0);
                     setPeer(&clients.peers[i], 0, "null", "null");
                     setMsgClients(&msg_clients, &clients);
-                    for (int j = 0; j < max_clients; j++)
-                    {
-                        if (clients.peers[j].socket != 0)
-                            sendMsg(clients.peers[j].socket, &msg_clients);
-                    }
                     close(aux_s);
                 }
                 else
@@ -177,19 +170,41 @@ int main(int argc, char *argv[])
                     }
                     if (strcmp(buffer, "reqf") == 0)
                     {
-                        bzero(buffer, 1024);
-                        read(aux_s, buffer, 1024);
+                        recvMsg(aux_s, &msg_torr);
+                        showTorrInfo(msg_torr.payload.torrent);
                         for (int i = 0; i < max_clients; i++)
                         {
                             if (clients.peers[i].socket != 0)
                             {
                                 for (int j = 0; j < 10; j++)
                                 {
-                                    if(strcmp(clients.peers[i].files[j].filename, buffer) == 0)
+                                    if (strcmp(clients.peers[i].files[j].filename, msg_torr.payload.torrent.info.name) == 0)
                                         cout << "Lo tiene " << clients.peers[i].username << endl;
                                 }
                             }
                         }
+                    }
+                    if (strcmp(buffer, "reqt") == 0)
+                    {
+                        bzero(buffer, 1024);
+                        read(aux_s, buffer, 1024);
+                        for (int i = 0; i < 10; i++)
+                        {
+                            if (strcmp(torrents_sv[i].info.name, buffer) == 0)
+                            {
+                                write(aux_s, "found", 5);
+                                setMsgTorr(&msg_torr, torrents_sv[i]);
+                                sendMsg(aux_s, &msg_torr);
+                                break;
+                            }
+                            if (i == 9)
+                                write(aux_s, "not", 3);
+                        }
+                    }
+                    if (strcmp(buffer, "online") == 0)
+                    {
+                        setMsgClients(&msg_clients, &clients);
+                        sendMsg(clients.peers[i].socket, &msg_clients);
                     }
                 }
             }

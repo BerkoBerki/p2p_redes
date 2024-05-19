@@ -14,12 +14,65 @@
 #include "proto_p2p.h"
 #include <thread>
 #include <iostream>
+#include <condition_variable>
+
 using namespace std;
 
 #define PORT_P2P 8001
+#define PIECE_LEN 262144
 
-void requestFile(int s, Torrent torrent) {
-    write(s, torrent.info.name, strlen(torrent.info.name));
+void requestFile(int s, TorrentFolder torrents, Msg *msg)
+{
+    char dwnld[255];
+    cout << "Estos son sus torrents:\n";
+    showMyTorrents(torrents);
+    cout << "Cual desea descargar?:";
+    bzero(dwnld, 255);
+    fgets(dwnld, 255, stdin);
+    std::string input(dwnld);
+    size_t pos = input.find('\n');
+    if (pos != std::string::npos) {
+        input = input.substr(0, pos);
+    }
+    for (int i = 0; i < 10; i++)
+    {
+        if (strcmp(input.c_str(), torrents.torrents[i].info.name) == 0)
+        {
+            setMsgTorr(msg, torrents.torrents[i]);
+            sendMsg(s, msg);
+            break;
+        }
+        if(i == 9)
+            cout << "Usted no tiene ese torrent.\n";
+    }
+}
+
+void requestTorrent(int s, TorrentFolder *torrent, Msg *msg)
+{
+    char torrname[255];
+    bzero(torrname, 255);
+    cout << "Torrent a descargar: ";
+    fgets(torrname, 255, stdin);
+    write(s, torrname, strlen(torrname) - 1);
+    bzero(torrname, 255);
+    read(s, torrname, 255);
+    if (strcmp(torrname, "found") == 0)
+    {
+        cout << "Descargando ...\n";
+        recvMsg(s, msg);
+        for (int i = 0; i < 10; i++)
+        {
+            if (strcmp(torrent->torrents[i].info.name, "null") == 0)
+            {
+                createTorrent(&torrent->torrents[i], msg->payload.torrent.info);
+                cout << "Torrent descargado: \n";
+                showTorrInfo(torrent->torrents[i]);
+                break;
+            }
+        }
+    }
+    else
+        cout << "Torrent no encontrado.\n";
 }
 
 void sendFileToAdd(int s, char *buffer_)
@@ -99,27 +152,25 @@ void other_peers()
     }
 }
 
-void leer_mjes(int s, Msg &msg, Clients &clients_)
+void leer_mjes(int s, Msg msg, Clients *clients_)
 {
-    while (recvMsg(s, &msg))
-    {
-        showClients(&msg.payload.client);
-        clients_ = msg.payload.client;
-    }
+    recvMsg(s, &msg);
+    showClients(&msg.payload.client);
+    clients_ = &msg.payload.client;
 }
+
 int main(int argc, char *argv[])
 {
 
     // int rd, wr;
     Msg msg_clients;
+    Msg msg_torr;
     Info info_torr;
-    Torrent mytorrents[10];
+    TorrentFolder mytorrents;
+    inic_torrents(&mytorrents);
     Clients clients;
     struct sockaddr_in serv_addr;
     int s = socket(AF_INET, SOCK_STREAM, 0);
-
-    setInfo(&info_torr, "Tux.bmp");
-    createTorrent(&mytorrents[0], info_torr);
 
     if (s < 0)
         printf("ERROR opening socket");
@@ -151,29 +202,41 @@ int main(int argc, char *argv[])
 
     bzero(myname, 255);
 
-    cout << "Bienvenido. Ingrese su username: ";
+    cout << "Bienvenido a IBTORRENT. Ingrese su username: ";
     fgets(myname, 255, stdin);
     write(s, myname, strlen(myname) - 1);
 
-    thread rec_cli(leer_mjes, s, std::ref(msg_clients), std::ref(clients));
-
     while (1)
-    {   
+    {
         cout << "ibtorr> ";
         bzero(buffer, 1024);
         fgets(buffer, 1024, stdin);
 
-        if (strcmp(buffer, "addfile\n") == 0) {
+        if (strcmp(buffer, "addfile\n") == 0)
+        {
             write(s, "addfile", 7);
             sendFileToAdd(s, buffer);
         }
-        if (strcmp(buffer, "reqf\n") == 0) {
+        if (strcmp(buffer, "reqf\n") == 0)
+        {
             write(s, "reqf", 4);
-            requestFile(s, mytorrents[0]);
+            requestFile(s, mytorrents, &msg_torr);
+        }
+        if (strcmp(buffer, "reqt\n") == 0)
+        {
+            write(s, "reqt", 4);
+            requestTorrent(s, &mytorrents, &msg_torr);
+        }
+        if (strcmp(buffer, "online\n") == 0)
+        {
+            write(s, "online", 6);
+            leer_mjes(s, msg_clients, &clients);
+        }
+        if (strcmp(buffer, "mytorr\n") == 0)
+        {
+            showMyTorrents(mytorrents);
         }
     }
-
-    rec_cli.join();
 
     close(s);
     return 0;
