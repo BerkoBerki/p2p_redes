@@ -88,7 +88,7 @@ void recib_sign(int s)
     }
 }
 
-string requestFile(int s, TorrentFolder torrents, Msg *msg)
+string requestFile(int s, TorrentFolder torrents, Msg *msg, int *size)
 {
     char dwnld[255];
     cout << "Estos son sus torrents:\n";
@@ -97,7 +97,6 @@ string requestFile(int s, TorrentFolder torrents, Msg *msg)
     bzero(dwnld, 255);
     fgets(dwnld, 255, stdin);
     std::string input(dwnld);
-    string name = input;
     size_t pos = input.find('\n');
     if (pos != std::string::npos)
     {
@@ -109,12 +108,13 @@ string requestFile(int s, TorrentFolder torrents, Msg *msg)
         {
             setMsgTorr(msg, torrents.torrents[i]);
             sendMsg(s, msg);
+            *size = torrents.torrents[i].info.length;
             break;
         }
         if (i == 9)
             cout << "Usted no tiene ese torrent.\n";
     }
-    return name;
+    return input;
 }
 
 void requestTorrent(int s, TorrentFolder *torrent, Msg *msg)
@@ -152,7 +152,6 @@ void sendFileToAdd(int s)
     bzero(filename, 255);
     fgets(filename, 255, stdin);
     std::string input(filename);
-    string name = input;
     size_t pos = input.find('\n');
     if (pos != std::string::npos)
     {
@@ -171,13 +170,12 @@ void sendFileToAdd(int s)
     }
 }
 
-void other_peers(string nombre, int myport)
+void other_peers(string nombre, int myport, int tamano)
 {
-    int rd;
     int peers[10];
+    int counter = 0;
     for (int i = 0; i < 10; i++)
         peers[i] = 0;
-    char buffer_p2p[1024];
     struct sockaddr_in peers_addr;
     int opt = 1;
     fd_set readfds;
@@ -193,7 +191,7 @@ void other_peers(string nombre, int myport)
     cout << "Bind: " << bind(socki, (struct sockaddr *)&peers_addr, sizeof(peers_addr)) << endl;
     cout << "Listening...\n";
     cout << "Listen:" << listen(socki, 5) << endl;
-    OtroFile files_recv[10];
+    Sizes files_recv[10];
     ofstream file(nombre, ios::binary);
     int parte;
     char parte_ch[10];
@@ -201,6 +199,7 @@ void other_peers(string nombre, int myport)
     char byte[1];
     while (1)
     {
+        
         FD_ZERO(&readfds);
         FD_SET(socki, &readfds);
         max_aux_s = socki;
@@ -247,10 +246,15 @@ void other_peers(string nombre, int myport)
                     bzero(byte, 1);
                     read(aux_s, byte, 1);
                     file.put(byte[0]);
+                    counter++;
                 }
-                
+                if(counter == tamano) {
+                    cout << "Transferencia completa\n";
+                    return;
+                }
             }
         }
+
     }
 }
 
@@ -264,7 +268,6 @@ void see_online(int s, Msg msg, Clients *clients_)
 int main(int argc, char *argv[])
 {
 
-    // int rd, wr;
     Msg msg_clients;
     Msg msg_torr;
     TorrentFolder mytorrents;
@@ -300,16 +303,29 @@ int main(int argc, char *argv[])
 
     char buffer[1024];
     char myname[255];
-
+    label1:
     bzero(myname, 255);
 
     cout << "Ingrese su username: ";
     fgets(myname, 255, stdin);
     write(s, myname, strlen(myname) - 1);
+    
+    char signal[10];
+    bzero(signal, 10);
+    read(s, signal, 10);
+    if(strcmp(signal, "used") == 0)
+    {
+        cout << "Ese usuario ya existe!\n";
+        goto label1;
+    }
+    char consolename[255];
+    bzero(consolename, 255);
+    memcpy(consolename, myname, strlen(myname)-1);
+
 
     while (1)
     {
-        cout << "ibtorr> ";
+        cout << consolename << "@ibtorr> ";
         bzero(buffer, 1024);
         fgets(buffer, 1024, stdin);
 
@@ -322,14 +338,16 @@ int main(int argc, char *argv[])
         if (strcmp(buffer, "reqf\n") == 0)
         {
             write(s, "reqf", 4);
-            string filename = requestFile(s, mytorrents, &msg_torr);
+            int tamano;
+            string filename = requestFile(s, mytorrents, &msg_torr, &tamano);
             bzero(buffer, 1024);
             read(s, buffer, 1024);
             if (strcmp(buffer, "no") == 0)
                 cout << "No hay peers activos para descargar.\n";
             else
             {
-                other_peers(filename,8000);
+                other_peers(filename,8000, tamano);
+                hashcheck(mytorrents, filename);
             }
             bzero(buffer, 1024);
         }

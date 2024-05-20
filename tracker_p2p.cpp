@@ -137,8 +137,17 @@ int main(int argc, char *argv[])
                 perror("Error en el accept");
                 exit(EXIT_FAILURE);
             }
+            label1:
             bzero(buffer, 1024);
             read(new_socket, buffer, 1024);
+            for(int i = 0; i < max_clients; i++ ){
+                if(strcmp(buffer, clients.peers[i].username)==0) {
+                    write(new_socket, "used", 4);
+                    goto label1;
+                }
+                if(i == max_clients-1)
+                    write(new_socket, "ok", 2);
+            }
             printf("%s se ha conectado a la red. Socket: %d. IP: %s. Puerto: %d\n", buffer, new_socket, inet_ntoa(address.sin_addr), ntohs(address.sin_port));
 
             for (i = 0; i < max_clients; i++)
