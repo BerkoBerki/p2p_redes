@@ -41,11 +41,22 @@ int main(int argc, char *argv[])
     int rd;
     char buffer[1024];
 
-    Info info_sv;
-    Torrent torrents_sv[10];
+    Info info_sw;
+    Torrent torrent_sw;
+    Info info_tux;
+    Torrent torrent_tux;
 
-    setInfo(&info_sv, "Tux.bmp", PIECE_LEN, 1);
-    createTorrent(&torrents_sv[0], info_sv);
+    setInfo(&info_tux, "tux.bmp", PIECE_LEN, 1);
+    createTorrent(&torrent_tux, info_tux);
+
+    
+    setInfo(&info_sw, "sw.bmp", PIECE_LEN, 1);
+    createTorrent(&torrent_sw, info_sw);
+
+    
+    showTorrInfo(torrent_tux);
+    showTorrInfo(torrent_sw);
+    
 
     for (i = 0; i < max_clients; i++)
     {
@@ -162,42 +173,89 @@ int main(int argc, char *argv[])
                 {
                     if (strcmp(buffer, "addfile") == 0)
                     {
-                        read(aux_s, buffer, 1024);
-                        addFile(&clients.peers[i], buffer);
-                        cout << clients.peers[i].username << " agrego " << buffer << " a su lista de archivos\n";
-                        setMsgClients(&msg_clients, &clients);
                         bzero(buffer, 1024);
+                        read(aux_s, buffer, 1024);
+                        if(strcmp(buffer, "no") == 0)
+                            break;
+                        else {
+                            addFile(&clients.peers[i], buffer);
+                            cout << clients.peers[i].username << " agrego " << buffer << " a su lista de archivos\n";
+                            setMsgClients(&msg_clients, &clients);
+                            bzero(buffer, 1024);
+                        }
                     }
                     if (strcmp(buffer, "reqf") == 0)
                     {
+                        int sockets[10];
+                        int partes = 0;
                         recvMsg(aux_s, &msg_torr);
                         showTorrInfo(msg_torr.payload.torrent);
-                        for (int i = 0; i < max_clients; i++)
+                        for (int j = 0; j < max_clients; j++)
                         {
-                            if (clients.peers[i].socket != 0)
+                            if (clients.peers[j].socket != 0)
                             {
-                                for (int j = 0; j < 10; j++)
+                                for (int k = 0; k < 10; k++)
                                 {
-                                    if (strcmp(clients.peers[i].files[j].filename, msg_torr.payload.torrent.info.name) == 0)
-                                        cout << "Lo tiene " << clients.peers[i].username << endl;
+                                    if (strcmp(clients.peers[j].files[k].filename, msg_torr.payload.torrent.info.name) == 0)
+                                    {
+                                        partes++;
+                                        
+                                        sockets[partes-1] = clients.peers[j].socket;
+                                        write(clients.peers[j].socket, "signal", 6);
+                                    }
                                 }
                             }
                         }
+                        if(partes > 0) 
+                            write(aux_s, "si", 2);
+                        int len_each = msg_torr.payload.torrent.info.length / partes;
+                        for (int p = 0; p < partes; p++)
+                        {
+                            if (p == partes-1)
+                            {
+                                string len = to_string(len_each + msg_torr.payload.torrent.info.length % partes);
+                                string parte = to_string(p+1);
+                                write(sockets[p], msg_torr.payload.torrent.info.name, strlen(msg_torr.payload.torrent.info.name));
+                                sleep(1);
+                                write(sockets[p], len.c_str(), strlen(len.c_str()));
+                                sleep(1);
+                                write(sockets[p], parte.c_str(), strlen(parte.c_str()));
+                            }
+                            else
+                            {
+                                string parte = to_string(p+1);
+                                string len = to_string(len_each);
+                                write(sockets[p], msg_torr.payload.torrent.info.name, strlen(msg_torr.payload.torrent.info.name));
+                                sleep(1);
+                                write(sockets[p], len.c_str(), strlen(len.c_str()));
+                                sleep(1);
+                                write(sockets[p], parte.c_str(), strlen(parte.c_str()));
+                                
+                            }
+                        }
+                        
                     }
                     if (strcmp(buffer, "reqt") == 0)
                     {
                         bzero(buffer, 1024);
                         read(aux_s, buffer, 1024);
-                        for (int i = 0; i < 10; i++)
+                        for (int i = 0; i < 2; i++)
                         {
-                            if (strcmp(torrents_sv[i].info.name, buffer) == 0)
+                            if (strcmp(torrent_sw.info.name, buffer) == 0)
                             {
                                 write(aux_s, "found", 5);
-                                setMsgTorr(&msg_torr, torrents_sv[i]);
+                                setMsgTorr(&msg_torr, torrent_sw);
                                 sendMsg(aux_s, &msg_torr);
                                 break;
                             }
-                            if (i == 9)
+                            if (strcmp(torrent_tux.info.name, buffer) == 0)
+                            {
+                                write(aux_s, "found", 5);
+                                setMsgTorr(&msg_torr, torrent_tux);
+                                sendMsg(aux_s, &msg_torr);
+                                break;
+                            }
+                            if (i == 1)
                                 write(aux_s, "not", 3);
                         }
                     }

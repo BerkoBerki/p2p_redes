@@ -33,12 +33,22 @@ int main()
     //SHA1((unsigned char *)allbytes, sizeof(allbytes) - 1, hash);
     //std::cout << "hash fr
 
-    Torrent tuxtorrent;
+    /* Torrent tuxtorrent;
     Info infotux;
 
-    setInfo(&infotux, "./SW.jpg");
+    setInfo(&infotux, "./SW.jpg", PIECE_LEN, 1);
     createTorrent(&tuxtorrent, infotux);
     showTorrInfo(tuxtorrent);
+ */
+
+    int x = 1000;
+    int r = x/3;
+    for(int i = 0; i<3; i++) {
+        if(i == 2)
+            cout << r + x%3 << '\n';
+        else
+            cout << r << '\n';
+    }
 
     return 0;
 }

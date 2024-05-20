@@ -55,7 +55,13 @@ typedef struct __attribute__((__packed__))
 typedef struct __attribute__((__packed__))
 {
     char filename[255];
+    int size;
 } File;
+
+typedef struct __attribute__((__packed__))
+{
+    int size;
+} OtroFile;
 
 typedef struct __attribute__((__packed__))
 {
@@ -65,6 +71,8 @@ typedef struct __attribute__((__packed__))
     char username[255];
     File files[10];
 } Peer;
+
+
 
 void inic_files(Peer *peer_)
 {
@@ -104,6 +112,7 @@ typedef struct __attribute__((__packed__))
     {
         Torrent torrent;
         Clients client;
+        File file;
     } payload;
 
 } Msg;
@@ -115,7 +124,7 @@ inline static void setSocket(Peer *peer_, int socket)
 
 inline static void setPeer(Peer *peer_, int port, const char *usern, const char *address)
 {
-    peer_->port = port;
+    peer_->port =port;
     memcpy(peer_->username, usern, strlen(usern));
     memcpy(peer_->address, address, strlen(address));
 }
@@ -260,8 +269,8 @@ inline static void showClients(Clients *clients)
 
 void showTorrInfo(Torrent torrent)
 {
-    cout << "File is located at: " << torrent.info.name << endl;
-    cout << "File size: " << torrent.info.length << " bytes\n";
+    cout << "Nombre del archivo: " << torrent.info.name << endl;
+    cout << "Tamano del archivo: " << torrent.info.length << " bytes\n";
 }
 
 void showMyTorrents(TorrentFolder torrentf)
@@ -274,6 +283,7 @@ void showMyTorrents(TorrentFolder torrentf)
         }
     }
 }
+
 
 int sendMsg(int sockfd, const Msg *msg)
 {
