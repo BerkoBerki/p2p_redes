@@ -292,8 +292,6 @@ void hashcheck(TorrentFolder mytorrs, string filename)
                     file.get(bytes[k]);
                 }
                 SHA1((unsigned char *)bytes, sizeof(bytes) - 1, hash);
-                cout << hash << '\n';
-                cout << mytorrs.torrents[i].info.pieces[j].hash << '\n';
                 if (strcmp((const char *)hash, (const char *)mytorrs.torrents[i].info.pieces[j].hash) == 0)
                     counter++;
             }
@@ -301,7 +299,7 @@ void hashcheck(TorrentFolder mytorrs, string filename)
                 cout << "Hash check ok.\n";
                 return;
             }
-            break;
+            break; 
         }
     }
 }

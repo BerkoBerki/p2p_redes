@@ -197,6 +197,12 @@ int main(int argc, char *argv[])
                     {
                         int sockets[10];
                         int partes = 0;
+                        char newsignal[2];
+                        bzero(newsignal, 2);
+                        read(aux_s, newsignal, 2);
+                        cout << newsignal;
+                        if(strcmp(newsignal, "no") == 0)
+                            continue;
                         recvMsg(aux_s, &msg_torr);
                         showTorrInfo(msg_torr.payload.torrent);
                         for (int j = 0; j < max_clients; j++)
@@ -215,8 +221,14 @@ int main(int argc, char *argv[])
                                 }
                             }
                         }
-                        if(partes > 0) 
+                        if(partes > 0) {
                             write(aux_s, "si", 2);
+                            char parte_ch[10];
+                            bzero(parte_ch, 10);
+                            memcpy(parte_ch, to_string(partes).c_str(), strlen(to_string(partes).c_str()));
+                            write(aux_s, parte_ch, strlen(parte_ch));
+                        }
+
                         int len_each = msg_torr.payload.torrent.info.length / partes;
                         for (int p = 0; p < partes; p++)
                         {
@@ -225,9 +237,9 @@ int main(int argc, char *argv[])
                                 string len = to_string(len_each + msg_torr.payload.torrent.info.length % partes);
                                 string parte = to_string(p+1);
                                 write(sockets[p], msg_torr.payload.torrent.info.name, strlen(msg_torr.payload.torrent.info.name));
-                                sleep(1);
+                                sleep(0.5);
                                 write(sockets[p], len.c_str(), strlen(len.c_str()));
-                                sleep(1);
+                                sleep(0.5);
                                 write(sockets[p], parte.c_str(), strlen(parte.c_str()));
                             }
                             else
@@ -235,9 +247,9 @@ int main(int argc, char *argv[])
                                 string parte = to_string(p+1);
                                 string len = to_string(len_each);
                                 write(sockets[p], msg_torr.payload.torrent.info.name, strlen(msg_torr.payload.torrent.info.name));
-                                sleep(1);
+                                sleep(0.5);
                                 write(sockets[p], len.c_str(), strlen(len.c_str()));
-                                sleep(1);
+                                sleep(0.5);
                                 write(sockets[p], parte.c_str(), strlen(parte.c_str()));
                                 
                             }
