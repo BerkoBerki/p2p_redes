@@ -20,16 +20,8 @@ using namespace std;
 
 #define PORT 8888
 
-typedef struct
-{
-    int socket;
-    char *address;
-    int port;
-} Peers;
-
 int main(int argc, char *argv[])
 {
-
     Msg msg_clients;
     Msg msg_torr;
     Clients clients;
@@ -40,32 +32,15 @@ int main(int argc, char *argv[])
     struct sockaddr_in address;
     int rd;
     char buffer[1024];
-
-    Info info_sw;
-    Torrent torrent_sw;
-    Info info_tux;
-    Torrent torrent_tux;
-
-    setInfo(&info_tux, "tux.bmp", PIECE_LEN, 1);
-    createTorrent(&torrent_tux, info_tux);
-
-    
-    setInfo(&info_sw, "sw.bmp", PIECE_LEN, 1);
-    createTorrent(&torrent_sw, info_sw);
-
-    
-    showTorrInfo(torrent_tux);
-    showTorrInfo(torrent_sw);
-    
+    TorrentFolder torrents;
+    inic_torrents(&torrents);
 
     for (i = 0; i < max_clients; i++)
     {
         setSocket(&clients.peers[i], 0);
         setPeer(&clients.peers[i], 0, "null", "null");
-        inic_files(&clients.peers[i]);
+        inic_pieces(clients.peers[i].files);
     }
-
-    showClients(&clients);
 
     if ((cs = socket(AF_INET, SOCK_STREAM, 0)) == 0)
     {
@@ -137,25 +112,30 @@ int main(int argc, char *argv[])
                 perror("Error en el accept");
                 exit(EXIT_FAILURE);
             }
-            label1:
+        label1:
             bzero(buffer, 1024);
             read(new_socket, buffer, 1024);
-            for(int i = 0; i < max_clients; i++ ){
-                if(strcmp(buffer, clients.peers[i].username)==0) {
+            for (int i = 0; i < max_clients; i++)
+            {
+                if (strcmp(buffer, clients.peers[i].username) == 0)
+                {
                     write(new_socket, "used", 4);
                     goto label1;
                 }
-                if(i == max_clients-1)
+                if (i == max_clients - 1)
                     write(new_socket, "ok", 2);
             }
-            printf("%s se ha conectado a la red. Socket: %d. IP: %s. Puerto: %d\n", buffer, new_socket, inet_ntoa(address.sin_addr), ntohs(address.sin_port));
+            char hisport[20];
+            bzero(hisport, 20);
+            read(new_socket, hisport,20 );
+            printf("%s se ha conectado a la red. Socket: %d. IP: %s. Puerto: %d\n", buffer, new_socket, inet_ntoa(address.sin_addr), atoi(hisport));
 
             for (i = 0; i < max_clients; i++)
             {
                 if (clients.peers[i].socket == 0)
                 {
                     setSocket(&clients.peers[i], new_socket);
-                    setPeer(&clients.peers[i], ntohs(address.sin_port), buffer, inet_ntoa(address.sin_addr));
+                    setPeer(&clients.peers[i], atoi(hisport), buffer, inet_ntoa(address.sin_addr));
                     break;
                 }
             }
@@ -180,110 +160,90 @@ int main(int argc, char *argv[])
                 }
                 else
                 {
-                    if (strcmp(buffer, "addfile") == 0)
-                    {
-                        bzero(buffer, 1024);
-                        read(aux_s, buffer, 1024);
-                        if(strcmp(buffer, "no") == 0)
-                            break;
-                        else {
-                            addFile(&clients.peers[i], buffer);
-                            cout << clients.peers[i].username << " agrego " << buffer << " a su lista de archivos\n";
-                            setMsgClients(&msg_clients, &clients);
-                            bzero(buffer, 1024);
-                        }
-                    }
                     if (strcmp(buffer, "reqf") == 0)
                     {
-                        int sockets[10];
-                        int partes = 0;
-                        char newsignal[2];
-                        bzero(newsignal, 2);
-                        read(aux_s, newsignal, 2);
-                        cout << newsignal;
-                        if(strcmp(newsignal, "no") == 0)
+                        char signal[20];
+                        bzero(signal, 20);
+                        read(aux_s, signal, 20);
+                        if (strcmp(signal, "no") == 0)
                             continue;
-                        recvMsg(aux_s, &msg_torr);
-                        showTorrInfo(msg_torr.payload.torrent);
-                        for (int j = 0; j < max_clients; j++)
+                        else
                         {
-                            if (clients.peers[j].socket != 0)
+                            for (int k = 0; k < 10; k++)
                             {
-                                for (int k = 0; k < 10; k++)
+                                for (int p = 0; p < 1024; p++)
                                 {
-                                    if (strcmp(clients.peers[j].files[k].filename, msg_torr.payload.torrent.info.name) == 0)
+                                    if (strcmp(clients.peers[k].files[p].filename, signal) == 0)
                                     {
-                                        partes++;
-                                        
-                                        sockets[partes-1] = clients.peers[j].socket;
-                                        write(clients.peers[j].socket, "signal", 6);
+                                        write(clients.peers[k].socket, "signal", 6);
+                                        sleep(0.5);
+                                        write(clients.peers[k].socket, signal, strlen(signal));
+                                        sleep(0.5);
+                                        write(clients.peers[k].socket, clients.peers[i].address, strlen(clients.peers[i].address));
+                                        sleep(0.5);
+                                        write(clients.peers[k].socket, to_string(clients.peers[i].port).c_str(), strlen(to_string(clients.peers[i].port).c_str()));
+                                        break;
                                     }
                                 }
                             }
                         }
-                        if(partes > 0) {
-                            write(aux_s, "si", 2);
-                            char parte_ch[10];
-                            bzero(parte_ch, 10);
-                            memcpy(parte_ch, to_string(partes).c_str(), strlen(to_string(partes).c_str()));
-                            write(aux_s, parte_ch, strlen(parte_ch));
-                        }
-
-                        int len_each = msg_torr.payload.torrent.info.length / partes;
-                        for (int p = 0; p < partes; p++)
-                        {
-                            if (p == partes-1)
-                            {
-                                string len = to_string(len_each + msg_torr.payload.torrent.info.length % partes);
-                                string parte = to_string(p+1);
-                                write(sockets[p], msg_torr.payload.torrent.info.name, strlen(msg_torr.payload.torrent.info.name));
-                                sleep(0.5);
-                                write(sockets[p], len.c_str(), strlen(len.c_str()));
-                                sleep(0.5);
-                                write(sockets[p], parte.c_str(), strlen(parte.c_str()));
-                            }
-                            else
-                            {
-                                string parte = to_string(p+1);
-                                string len = to_string(len_each);
-                                write(sockets[p], msg_torr.payload.torrent.info.name, strlen(msg_torr.payload.torrent.info.name));
-                                sleep(0.5);
-                                write(sockets[p], len.c_str(), strlen(len.c_str()));
-                                sleep(0.5);
-                                write(sockets[p], parte.c_str(), strlen(parte.c_str()));
-                                
-                            }
-                        }
-                        
                     }
                     if (strcmp(buffer, "reqt") == 0)
                     {
+                        Msg msg_torr_2;
                         bzero(buffer, 1024);
                         read(aux_s, buffer, 1024);
-                        for (int i = 0; i < 2; i++)
+                        for (int j = 0; j < 10; j++)
                         {
-                            if (strcmp(torrent_sw.info.name, buffer) == 0)
+                            if (torrents.torrents[j].used == 1 && strcmp(torrents.torrents[j].name, buffer) == 0)
                             {
                                 write(aux_s, "found", 5);
-                                setMsgTorr(&msg_torr, torrent_sw);
-                                sendMsg(aux_s, &msg_torr);
+                                setMsgTorr(&msg_torr_2, torrents.torrents[j]);
+                                sendMsg(aux_s, &msg_torr_2);
                                 break;
                             }
-                            if (strcmp(torrent_tux.info.name, buffer) == 0)
-                            {
-                                write(aux_s, "found", 5);
-                                setMsgTorr(&msg_torr, torrent_tux);
-                                sendMsg(aux_s, &msg_torr);
-                                break;
-                            }
-                            if (i == 1)
+                            if (j == 9)
                                 write(aux_s, "not", 3);
+                        }
+                    }
+                    if (strcmp(buffer, "pieces") == 0)
+                    {
+                        Msg piece_buffer;
+                        recvMsg(aux_s, &piece_buffer);
+                        // assert(piece_buffer.hdr.type == TYPE_FILEPIECE);
+                        for (int j = 0; j < 1024; j++)
+                        {
+                            if (clients.peers[i].files[j].used == 0)
+                            {
+                                createPiece(&clients.peers[i].files[j], piece_buffer.payload.file.filename, piece_buffer.payload.file.size,
+                                            piece_buffer.payload.file.idx);
+                                cout << clients.peers[i].username << " tiene la pieza " << piece_buffer.payload.file.idx << " del archivo " << piece_buffer.payload.file.filename
+                                     << " con tamano " << piece_buffer.payload.file.size << endl;
+                                write(aux_s, "ok", 2);
+                                break;
+                            }
                         }
                     }
                     if (strcmp(buffer, "online") == 0)
                     {
                         setMsgClients(&msg_clients, &clients);
                         sendMsg(clients.peers[i].socket, &msg_clients);
+                    }
+                    if (strcmp(buffer, "createt") == 0)
+                    {
+                        Msg msg_new_torr;
+                        recvMsg(aux_s, &msg_new_torr);
+                        for (int j = 0; j < 10; i++)
+                        {
+
+                            if (torrents.torrents[j].used == 0)
+                            {
+                                createTorrent(&torrents.torrents[j], msg_new_torr.payload.torrent.name, PIECE_LEN, 1);
+                                showTorrInfo(torrents.torrents[j]);
+                                cout << msg_new_torr.payload.torrent.name << " creado\n";
+                                break;
+                            }
+                        }
                     }
                 }
             }

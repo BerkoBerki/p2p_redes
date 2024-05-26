@@ -6,28 +6,43 @@
 #include <arpa/inet.h>
 #include <pthread.h>
 #include <string>
+#include <fcntl.h>
 #include <openssl/sha.h>
+#include <mutex>
 using namespace std;
 
+mutex mtx_proto;
+
 #define PIECE_LEN 262144
+char bytes_torr[PIECE_LEN];
 
 typedef enum
 {
     TYPE_MSG,
     TYPE_TORR,
-    TYPE_CLIENTS
+    TYPE_CLIENTS,
+    TYPE_FILEPIECE
 } Type;
 
-typedef struct __attribute__((__packed__))
-{
-    uint8_t type;
-    uint16_t size8;
-} Header;
+void write_prot(int soc, const char* buffer, size_t size) {
+    lock_guard<mutex> lock(mtx_proto);
+    write(soc, &size, sizeof(size));
+    write(soc, buffer, size);
+}
+
+void read_prot(int socket, char* buffer) {
+    std::lock_guard<std::mutex> lock(mtx_proto);
+    size_t size;
+    read(socket, &size, sizeof(size)); 
+    read(socket, buffer, size); 
+    //buffer[size] = '\0'; 
+}
 
 typedef struct __attribute__((__packed__))
 {
-    uint8_t size;
-} Img;
+    uint16_t type;
+    uint16_t size8;
+} Header;
 
 typedef struct __attribute__((__packed__))
 {
@@ -40,13 +55,10 @@ typedef struct __attribute__((__packed__))
     char name[255];   // path y nombre
     int piece_length; // tamano de las piezas (bytes)
     int num_pieces;
+    bool used;
     Hash pieces[10];
-} Info;
-
-typedef struct __attribute__((__packed__))
-{
-    Info info;
 } Torrent;
+
 
 typedef struct __attribute__((__packed__))
 {
@@ -57,6 +69,16 @@ typedef struct __attribute__((__packed__))
 {
     char filename[255];
     int size;
+    int idx;
+    bool used;
+    bool sent;
+} FilePiece;
+
+typedef struct __attribute__((__packed__))
+{
+    char filename[255];
+    int parts;
+    FilePiece pieces[1024];
 } File;
 
 typedef struct __attribute__((__packed__))
@@ -70,18 +92,18 @@ typedef struct __attribute__((__packed__))
     int port;
     char address[255];
     char username[255];
-    File files[10];
+    FilePiece files[1024];
 } Peer;
 
 void inic_files(Peer *peer_)
 {
-    for (int i = 0; i < 10; i++)
+    for (int i = 0; i < 1024; i++)
     {
         memcpy(&peer_->files[i].filename, "null", strlen("null"));
     }
 }
 
-void addFile(Peer *peer_, const char *filename)
+void addFile(Peer *peer_, const char *filename, int pieces)
 {
     for (int i = 0; i < 10; i++)
     {
@@ -107,9 +129,8 @@ typedef struct __attribute__((__packed__))
     {
         Torrent torrent;
         Clients client;
-        File file;
+        FilePiece file;
     } payload;
-
 } Msg;
 
 inline static void setSocket(Peer *peer_, int socket)
@@ -124,51 +145,53 @@ inline static void setPeer(Peer *peer_, int port, const char *usern, const char 
     memcpy(peer_->address, address, strlen(address));
 }
 
-void setInfo(Info *info, const char *name, int piece_length_, bool check)
+void createTorrent(Torrent *torrent, const char *name, int piece_length_, bool check)
 {
-    info->piece_length = piece_length_;
+    torrent->piece_length = piece_length_;
     if (check)
     {
-        ifstream file(name, ios::binary);
-        assert(file.is_open());
-        char byte;
-        info->length = 0;
-        while (file.get(byte))
-            info->length++;
-        file.close();
-        file.open(name, ios::binary);
-        assert(file.is_open());
-        bzero(info->name, 255);
-        memcpy(info->name, name, strlen(name));
-        int num_hashes;
-        num_hashes = info->length / info->piece_length;
-        info->num_pieces = num_hashes;
-        for (int i = 0; i < num_hashes; i++)
-        {
-            char bytes[info->piece_length];
-            for (int j = 0; j < info->piece_length; j++)
-            {
-                file.get(bytes[j]);
-            }
-            SHA1((unsigned char *)bytes, sizeof(bytes) - 1, info->pieces[i].hash);
+        torrent->used = 1;
+        int op = open(name, NULL);
+        assert(op>0);
+        char byte[1];
+        torrent->length = 0;
+        while (read(op, byte, 1)) {
+            torrent->length++;
         }
-        file.close();
+        close(op);
+        op = open(name, NULL);
+        assert(op>0);
+        bzero(torrent->name, 255);
+        memcpy(torrent->name, name, strlen(name));
+        
+        int num_pieces;
+        num_pieces = torrent->length / torrent->piece_length;
+        if(torrent->length%torrent->piece_length != 0)
+            torrent->num_pieces = num_pieces + 1;
+        else
+            torrent->num_pieces = num_pieces;
+
+        for (int i = 0; i < num_pieces; i++)
+        {
+
+            bzero(bytes_torr, torrent->piece_length);
+            read(op, bytes_torr, torrent->piece_length);
+            
+            SHA1((unsigned char *)bytes_torr, sizeof(bytes_torr) - 1, torrent->pieces[i].hash);
+        } 
+        close(op);
     }
-    else
-        memcpy(info->name, name, strlen(name));
-}
-void createTorrent(Torrent *torrent, Info info)
-{
-    torrent->info = info;
+    else {
+        memcpy(torrent->name, name, strlen(name));
+        torrent->used = 1;
+    }
 }
 
 void inic_torrents(TorrentFolder *torrent_f)
 {
     for (int i = 0; i < 10; i++)
     {
-        Info info;
-        setInfo(&info, "null", PIECE_LEN, 0);
-        createTorrent(&torrent_f->torrents[i], info);
+        torrent_f->torrents[i].used = 0;
     }
 }
 
@@ -180,7 +203,6 @@ inline static void setMsgClients(Msg *msg, Clients *clients_)
     {
         setSocket(&msg->payload.client.peers[i], clients_->peers[i].socket);
         setPeer(&msg->payload.client.peers[i], clients_->peers[i].port, clients_->peers[i].username, clients_->peers[i].address);
-        memcpy(&msg->payload.client.peers[i].files, clients_->peers[i].files, 10 * sizeof(File));
         msg->hdr.size8 = msg->hdr.size8 + htons(sizeof(Header) + sizeof(Peer));
     }
 }
@@ -188,7 +210,7 @@ inline static void setMsgClients(Msg *msg, Clients *clients_)
 inline static void setMsgTorr(Msg *msg, Torrent torrent_)
 {
     msg->hdr.type = TYPE_TORR;
-    createTorrent(&msg->payload.torrent, torrent_.info);
+    createTorrent(&msg->payload.torrent, torrent_.name, PIECE_LEN, 1);
     msg->hdr.size8 = htons(sizeof(Header) + sizeof(Torrent));
 }
 
@@ -212,37 +234,34 @@ int getPort(Peer *peer_)
     return peer_->port;
 }
 
-int getType(Msg *msg)
+inline static void setMsgPiece(Msg *msg, FilePiece *filepieces) {
+    msg->hdr.size8 = htons(sizeof(Header) + sizeof(FilePiece));
+    msg->hdr.type = TYPE_FILEPIECE;
+    msg->payload.file = *filepieces;
+}
+
+inline static void createPiece(FilePiece *filepiece, const char *filename, int size, int idx) 
 {
-    int x = msg->hdr.type;
-    if (x == 0)
+    for(int i = 0; i<1024; i++) 
     {
-        printf("Mensaje.\n");
-        return x;
-    }
-    if (x == 1)
-    {
-        printf("Iamgen.\n");
-        return x;
-    }
-    if (x == 2)
-    {
-        printf("Usuario.\n");
-        return x;
-    }
-    if (x == 3)
-    {
-        printf("Clients.\n");
-        return x;
-    }
-    else
-    {
-        printf("Error.\n");
-        return x;
+        if(filepiece[i].used == 0) {
+            memcpy(filepiece[i].filename, filename, strlen(filename));
+            filepiece[i].size = size;
+            filepiece[i].idx = idx;
+            filepiece[i].used = 1;
+            filepiece[i].sent = 0;
+            break;
+        }
     }
 }
 
-
+inline static void inic_pieces(FilePiece *filepiece) 
+{
+    for(int i = 0; i<1024; i++) {
+        filepiece[i].used = 0;
+        filepiece[i].sent = 1;
+    }
+} 
 
 inline static void showClients(Clients *clients)
 {
@@ -260,16 +279,16 @@ inline static void showClients(Clients *clients)
 
 void showTorrInfo(Torrent torrent)
 {
-    cout << "Nombre del archivo: " << torrent.info.name << endl;
-    cout << "Tamano del archivo: " << torrent.info.length << " bytes\n";
-    cout << "Numero de hashes: " << torrent.info.num_pieces << endl;
+    cout << "Nombre del archivo: " << torrent.name << endl;
+    cout << "Tamano del archivo: " << torrent.length << " bytes\n";
+    cout << "Numero de hashes: " << torrent.num_pieces << endl;
 }
 
 void showMyTorrents(TorrentFolder torrentf)
 {
     for (int i = 0; i < 10; i++)
     {
-        if (strcmp(torrentf.torrents[i].info.name, "null") != 0)
+        if (torrentf.torrents[i].used == 1)
         {
             showTorrInfo(torrentf.torrents[i]);
         }
@@ -280,22 +299,20 @@ void hashcheck(TorrentFolder mytorrs, string filename)
     int counter = 0;
     for (int i = 0; i < 10; i++)
     {
-        if (strcmp(filename.c_str(), mytorrs.torrents[i].info.name) == 0)
+        if (strcmp(filename.c_str(), mytorrs.torrents[i].name) == 0)
         {
-            ifstream file(filename, ios::binary);
-            for (int j = 0; j < mytorrs.torrents[i].info.num_pieces; j++)
+            int fd = open(filename.c_str(), NULL);
+            for (int j = 0; j < mytorrs.torrents[i].num_pieces; j++)
             {
                 unsigned char hash[20];
-                char bytes[mytorrs.torrents[i].info.piece_length];
-                for (int k = 0; k < mytorrs.torrents[i].info.piece_length; k++)
-                {
-                    file.get(bytes[k]);
-                }
+                char bytes[mytorrs.torrents[i].piece_length];
+                write(fd, bytes, mytorrs.torrents[i].piece_length);
+
                 SHA1((unsigned char *)bytes, sizeof(bytes) - 1, hash);
-                if (strcmp((const char *)hash, (const char *)mytorrs.torrents[i].info.pieces[j].hash) == 0)
+                if (strcmp((const char *)hash, (const char *)mytorrs.torrents[i].pieces[j].hash) == 0)
                     counter++;
             }
-            if(counter == mytorrs.torrents[i].info.num_pieces) {
+            if(counter == mytorrs.torrents[i].num_pieces) {
                 cout << "Hash check ok.\n";
                 return;
             }
