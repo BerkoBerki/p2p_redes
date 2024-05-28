@@ -114,20 +114,20 @@ int main(int argc, char *argv[])
             }
         label1:
             bzero(buffer, 1024);
-            read(new_socket, buffer, 1024);
+            read_prot(new_socket, buffer);
             for (int i = 0; i < max_clients; i++)
             {
                 if (strcmp(buffer, clients.peers[i].username) == 0)
                 {
-                    write(new_socket, "used", 4);
+                    write_prot(new_socket, "used", 4);
                     goto label1;
                 }
                 if (i == max_clients - 1)
-                    write(new_socket, "ok", 2);
+                    write_prot(new_socket, "ok", 2);
             }
             char hisport[20];
             bzero(hisport, 20);
-            read(new_socket, hisport,20 );
+            read_prot(new_socket, hisport);
             printf("%s se ha conectado a la red. Socket: %d. IP: %s. Puerto: %d\n", buffer, new_socket, inet_ntoa(address.sin_addr), atoi(hisport));
 
             for (i = 0; i < max_clients; i++)
@@ -148,7 +148,7 @@ int main(int argc, char *argv[])
             if (FD_ISSET(aux_s, &readfds))
             {
                 bzero(buffer, 1024);
-                if ((rd = read(aux_s, buffer, 1024)) == 0)
+                if ((rd = read_prot(aux_s, buffer)) == 0)
                 {
                     getpeername(aux_s, (struct sockaddr *)&address, (socklen_t *)&addrlen);
                     printf("%s desconectado. IP: %s. Puerto: %d.\n", getUserName(&clients.peers[i]), inet_ntoa(address.sin_addr), ntohs(address.sin_port));
@@ -164,7 +164,7 @@ int main(int argc, char *argv[])
                     {
                         char signal[20];
                         bzero(signal, 20);
-                        read(aux_s, signal, 20);
+                        read_prot(aux_s, signal);
                         if (strcmp(signal, "no") == 0)
                             continue;
                         else
@@ -175,13 +175,10 @@ int main(int argc, char *argv[])
                                 {
                                     if (strcmp(clients.peers[k].files[p].filename, signal) == 0)
                                     {
-                                        write(clients.peers[k].socket, "signal", 6);
-                                        sleep(0.5);
-                                        write(clients.peers[k].socket, signal, strlen(signal));
-                                        sleep(0.5);
-                                        write(clients.peers[k].socket, clients.peers[i].address, strlen(clients.peers[i].address));
-                                        sleep(0.5);
-                                        write(clients.peers[k].socket, to_string(clients.peers[i].port).c_str(), strlen(to_string(clients.peers[i].port).c_str()));
+                                        write_prot(clients.peers[k].socket, "signal", 6);
+                                        write_prot(clients.peers[k].socket, signal, strlen(signal));
+                                        write_prot(clients.peers[k].socket, clients.peers[i].address, strlen(clients.peers[i].address));
+                                        write_prot(clients.peers[k].socket, to_string(clients.peers[i].port).c_str(), strlen(to_string(clients.peers[i].port).c_str()));
                                         break;
                                     }
                                 }
@@ -192,18 +189,18 @@ int main(int argc, char *argv[])
                     {
                         Msg msg_torr_2;
                         bzero(buffer, 1024);
-                        read(aux_s, buffer, 1024);
+                        read_prot(aux_s, buffer);
                         for (int j = 0; j < 10; j++)
                         {
                             if (torrents.torrents[j].used == 1 && strcmp(torrents.torrents[j].name, buffer) == 0)
                             {
-                                write(aux_s, "found", 5);
+                                write_prot(aux_s, "found", 5);
                                 setMsgTorr(&msg_torr_2, torrents.torrents[j]);
                                 sendMsg(aux_s, &msg_torr_2);
                                 break;
                             }
                             if (j == 9)
-                                write(aux_s, "not", 3);
+                                write_prot(aux_s, "not", 3);
                         }
                     }
                     if (strcmp(buffer, "pieces") == 0)
@@ -213,13 +210,13 @@ int main(int argc, char *argv[])
                         // assert(piece_buffer.hdr.type == TYPE_FILEPIECE);
                         for (int j = 0; j < 1024; j++)
                         {
+
                             if (clients.peers[i].files[j].used == 0)
                             {
                                 createPiece(&clients.peers[i].files[j], piece_buffer.payload.file.filename, piece_buffer.payload.file.size,
                                             piece_buffer.payload.file.idx);
                                 cout << clients.peers[i].username << " tiene la pieza " << piece_buffer.payload.file.idx << " del archivo " << piece_buffer.payload.file.filename
                                      << " con tamano " << piece_buffer.payload.file.size << endl;
-                                write(aux_s, "ok", 2);
                                 break;
                             }
                         }
@@ -233,9 +230,8 @@ int main(int argc, char *argv[])
                     {
                         Msg msg_new_torr;
                         recvMsg(aux_s, &msg_new_torr);
-                        for (int j = 0; j < 10; i++)
+                        for (int j = 0; j < 10; j++)
                         {
-
                             if (torrents.torrents[j].used == 0)
                             {
                                 createTorrent(&torrents.torrents[j], msg_new_torr.payload.torrent.name, PIECE_LEN, 1);

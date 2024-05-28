@@ -50,12 +50,13 @@ int main()
     char byte0[1];
     char byte1[1];
 
-    for(int i = 0; i < 460854; i++) 
+    for(int i = 0; i < 10; i++) 
     {
-        bzero(byte0,1);
-        bzero(byte1, 1);
-        read(fd, byte0, 1);
-        write(fd_new, byte0, 1);
+        cout << i << endl;
+        if(i == 5)
+            continue;
+
+        cout << i << endl;
     }
 
 
