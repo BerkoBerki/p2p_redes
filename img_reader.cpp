@@ -6,6 +6,16 @@
 #include <unistd.h>
 #include "proto_p2p.h"
 
+typedef struct __attribute__((__packed__))
+{
+    unsigned char hash[40];
+} hashito;
+
+typedef struct __attribute__((__packed__))
+{
+    hashito hashesitos[200];
+} hashesote;
+
 int main()
 {
     /*     unsigned char hash[20];
@@ -42,26 +52,66 @@ int main()
     createTorrent(&tuxtorrent, infotux);
     showTorrInfo(tuxtorrent);
  */
-    
+
+    // ADDFILE -> AGREGA EL ARCHIVO Y CREA EL TORRENT CON EL HASH COMPLETO. QUE PREGUNTE CUANTAS PIEZAS QUERES AGREGAR.
+
+    // NEWTORR -> AVISA QUE TENES EL TORRENT, PERO HASH VACIO. A MEDIDA QUE LO VAS CONSIGUIENDO, SE VA LLENANDO EL HASH.
+
+    // PIDO DOWNLOAD -> EL TRACKER HACER OR ENTRE LOS HASHES. LE DICE QUE PIEZAS BUSCAR Y DONDE.
+
     int fd = open("tux.bmp", O_RDWR, 0700);
 
-    int fd_new = open("HOLA.bmp", O_CREAT | O_RDWR, 0700);
-    
-    char byte0[1];
-    char byte1[1];
+    int piece_len = 50000;
 
-    for(int i = 0; i < 10; i++) 
+    char bytes[piece_len];
+
+    int num_hashes = 460854 / piece_len;
+
+    hashesote hola;
+
+    for (int i = 0; i < num_hashes; i++)
     {
-        cout << i << endl;
-        if(i == 5)
-            continue;
-
-        cout << i << endl;
+        bzero(bytes, piece_len);
+        read(fd, bytes, piece_len);
+        SHA1((unsigned char *)bytes, sizeof(bytes) - 1, hola.hashesitos[i].hash);
     }
 
+    close(fd);
 
+    fd = open("tux.bmp", O_RDWR, 0700);
 
+    hashesote hola2;
 
+    for (int i = 0; i < num_hashes; i++)
+    {
+        read(fd, bytes, piece_len);
+        if (i % 2)
+            SHA1((unsigned char *)bytes, sizeof(bytes) - 1, hola2.hashesitos[i].hash);
+    }
+
+    close(fd);
+    int vector[num_hashes];
+
+    unsigned char result;
+
+    for (int j = 0; j < num_hashes; j++)
+    {
+        for (int i = 0; i < 20; i++)
+        {
+            result = hola.hashesitos[j].hash[i] | hola2.hashesitos[j].hash[i];
+            if (result != hola.hashesitos[j].hash[i] || result != hola2.hashesitos[j].hash[i])
+            {
+                vector[j] = 0;
+                break;
+            }
+            vector[j] = 1;
+        }
+    }
+    for(int k = 0; k<num_hashes; k++)
+        cout << vector[k]<< " ";
+
+    
+    int X = 56;
+    cout << "a: " << X/10 << endl;
+    cout << "b: " << X%10 << endl;
 }
-
-

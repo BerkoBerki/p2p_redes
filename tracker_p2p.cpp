@@ -87,7 +87,6 @@ int main(int argc, char *argv[])
 
         for (i = 0; i < max_clients; i++)
         {
-
             aux_s = clients.peers[i].socket;
 
             if (aux_s > 0)
@@ -155,7 +154,6 @@ int main(int argc, char *argv[])
 
                     setSocket(&clients.peers[i], 0);
                     setPeer(&clients.peers[i], 0, "null", "null");
-                    setMsgClients(&msg_clients, &clients);
                     close(aux_s);
                 }
                 else
@@ -169,38 +167,48 @@ int main(int argc, char *argv[])
                             continue;
                         else
                         {
-                            for (int k = 0; k < 10; k++)
+                            Msg torr;
+                            bzero(&torr, sizeof(Msg));
+                            recvMsg(aux_s, &torr);
+                            int idx = lookTorr(torr.payload.torrent.name, &clients, i);
+                            if (idx != -1)
                             {
-                                for (int p = 0; p < 1024; p++)
-                                {
-                                    if (strcmp(clients.peers[k].files[p].filename, signal) == 0)
-                                    {
-                                        write_prot(clients.peers[k].socket, "signal", 6);
-                                        write_prot(clients.peers[k].socket, signal, strlen(signal));
-                                        write_prot(clients.peers[k].socket, clients.peers[i].address, strlen(clients.peers[i].address));
-                                        write_prot(clients.peers[k].socket, to_string(clients.peers[i].port).c_str(), strlen(to_string(clients.peers[i].port).c_str()));
-                                        break;
-                                    }
-                                }
+                                HashCheck hc = torrCompare(clients.peers[idx % 10].torrents.torrents[idx / 10], torr.payload.torrent);
+                                cout << "[ ";
+                                for (int klks = 0; klks < torr.payload.torrent.num_pieces; klks++)
+                                    cout << hc.vector[klks] << " ";
+                                cout << "]\n";
                             }
                         }
                     }
+                    if (strcmp(buffer, "add") == 0)
+                    {
+                        Msg msg_torr_buff;
+                        recvMsg(aux_s, &msg_torr_buff);
+                        addTorrent(&clients.peers[i].torrents, msg_torr_buff.payload.torrent);
+                    }
                     if (strcmp(buffer, "reqt") == 0)
                     {
-                        Msg msg_torr_2;
+
                         bzero(buffer, 1024);
                         read_prot(aux_s, buffer);
-                        for (int j = 0; j < 10; j++)
+                        int idx = lookTorr(buffer, &clients, i);
+                        if (idx != -1)
                         {
-                            if (torrents.torrents[j].used == 1 && strcmp(torrents.torrents[j].name, buffer) == 0)
-                            {
-                                write_prot(aux_s, "found", 5);
-                                setMsgTorr(&msg_torr_2, torrents.torrents[j]);
-                                sendMsg(aux_s, &msg_torr_2);
-                                break;
-                            }
-                            if (j == 9)
-                                write_prot(aux_s, "not", 3);
+                            Msg msg_torr_2;
+                            bzero(&msg_torr_2, sizeof(Msg));
+                            cout << "found\n";
+                            write_prot(aux_s, "found", 5);
+                            Torrent torr = clients.peers[idx % 10].torrents.torrents[idx / 10];
+                            cleanHash(&torr);
+                            setMsgTorr(&msg_torr_2, torr);
+                            cleanHash(&msg_torr_2.payload.torrent);
+                            sendMsg(aux_s, &msg_torr_2);
+                            addTorrent(&clients.peers[i].torrents, torr);
+                        }
+                        else
+                        {
+                            write_prot(aux_s, "not", 3);
                         }
                     }
                     if (strcmp(buffer, "pieces") == 0)
@@ -220,11 +228,6 @@ int main(int argc, char *argv[])
                                 break;
                             }
                         }
-                    }
-                    if (strcmp(buffer, "online") == 0)
-                    {
-                        setMsgClients(&msg_clients, &clients);
-                        sendMsg(clients.peers[i].socket, &msg_clients);
                     }
                     if (strcmp(buffer, "createt") == 0)
                     {
