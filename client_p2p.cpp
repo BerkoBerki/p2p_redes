@@ -22,7 +22,6 @@ mutex mtx;
 mutex mtx_3;
 condition_variable cv;
 bool dataReady = false;
-FilePiece filepieces[1024];
 TorrentFolder mytorrents;
 
 condition_variable cv_2;
@@ -30,53 +29,12 @@ bool stopflag = false;
 
 mutex mtx_2;
 
-void actualizar_piezas(int s)
+void update_torr(int s, Torrent torrent)
 {
-    unique_lock<mutex> lock(mtx);
-    cv.wait(lock, []
-            { return dataReady; });
-    for (int i = 0; i < 1024; i++)
-    {
-        if (filepieces[i].sent == 0)
-        {
-            write_prot(s, "pieces", 6);
-            Msg msg_pieces;
-            setMsgPiece(&msg_pieces, &filepieces[i]);
-            sendMsg(s, &msg_pieces);
-            filepieces[i].sent = 1;
-        }
-    }
-    dataReady = false;
-}
-
-void hashcheck(TorrentFolder mytorrs, string filename)
-{
-    lock_guard<mutex> lock(mtx_2);
-    int counter = 1;
-    for (int i = 0; i < 10; i++)
-    {
-        if (strcmp(filename.c_str(), mytorrs.torrents[i].name) == 0)
-        {
-            int fd = open(filename.c_str(), NULL);
-            assert(fd > 0);
-            unsigned char hash[200];
-            for (int j = 0; j < mytorrs.torrents[i].num_pieces - 1; j++)
-            {
-                bzero(hash, 200);
-                char bytes[PIECE_LEN];
-                bzero(bytes, PIECE_LEN);
-                read(fd, bytes, PIECE_LEN);
-
-                SHA1((unsigned char *)bytes, sizeof(bytes) - 1, hash);
-
-                if (strcmp((const char *)hash, (const char *)mytorrs.torrents[i].pieces[j].hash) == 0)
-                    counter++;
-            }
-            cout << "Hash check: " << counter << "/" << mytorrs.torrents[i].num_pieces << " partes ok.\n";
-            close(fd);
-            break;
-        }
-    }
+    write_prot(s, "update", 7);
+    Msg torr_;
+    setMsgTorr(&torr_, torrent);
+    sendMsg(s, &torr_);
 }
 
 void other_peers(int myport, int s)
@@ -91,9 +49,8 @@ void other_peers(int myport, int s)
 
     struct sockaddr_in peers_addr;
     int opt = 1;
-    off_t off;
     fd_set readfds;
-    char byte_[1];
+    char idx[5];
     int max_aux_s, aux_s, activ, new_socket;
     int socki;
     socki = socket(AF_INET, SOCK_STREAM, 0);
@@ -136,7 +93,7 @@ void other_peers(int myport, int s)
                 }
             }
         }
-
+        bzero(buffer, 255);
         for (int i = 0; i < 10; i++)
         {
             aux_s = peers[i];
@@ -149,26 +106,21 @@ void other_peers(int myport, int s)
                 }
                 else
                 {
-                    char idx[10];
-                    bzero(idx, 10);
+                    bzero(idx, 5);
                     read_prot(aux_s, idx);
-                    for (int h = 0; h < 1024; h++)
-                    {
-                        if (strcmp(filepieces[h].filename, buffer) == 0 && filepieces[h].idx == atoi(idx))
-                        {
-                            write_prot(aux_s, to_string(filepieces[h].size).c_str(), strlen(to_string(filepieces[h].size).c_str()));
-                            write_prot(aux_s, to_string(filepieces[h].idx).c_str(), strlen(to_string(filepieces[h].idx).c_str()));
-                            int fd = open(buffer, O_RDWR, 0700);
-                            lseek(fd, atoi(idx) * PIECE_LEN, SEEK_SET);
-                            assert(fd > 0);
-                            char byte[filepieces[h].size];
-                            bzero(byte, filepieces[h].size);
-                            read(fd, byte, filepieces[h].size);
-                            write_prot(aux_s, byte, filepieces[h].size);
-                        }
-                    }
+                    cout << "idx: " << idx << endl;
+                    cout << "BUFFER: " << buffer << endl;
+                    int fd = open(buffer, O_RDWR, 0700);
+                    assert(fd > 0);
+                    char bytess[PIECE_LEN];
+                    bzero(bytess, PIECE_LEN);
+                    lseek(fd, atoi(idx) * PIECE_LEN, SEEK_SET);
+                    read(fd, bytess, PIECE_LEN);
+                    write_prot(aux_s, bytess, PIECE_LEN);
+                    close(fd);
                 }
             }
+            bzero(buffer, 255);
         }
     }
 }
@@ -209,113 +161,109 @@ void create_torr(int s)
     sendMsg(s, &msg);
 }
 
+void *acept_archivo(void *args)
+{
+    ArgThreads *thread_args = (ArgThreads *)args;
+    IdxInfo indice = thread_args->idxinfo;
+    struct sockaddr_in peers_addr;
+    int opt = 1;
+    int socki;
+    socki = socket(AF_INET, SOCK_STREAM, 0);
+    struct sockaddr_in serv;
+    struct hostent *serv_;
+    serv_ = gethostbyname(indice.address);
+    int portno = indice.port;
+    bzero((char *)&serv, sizeof(serv));
+    serv.sin_family = AF_INET;
+    bcopy((char *)serv_->h_addr, (char *)&serv.sin_addr.s_addr, serv_->h_length);
+    serv.sin_port = htons(portno);
+    if (connect(socki, (struct sockaddr *)&serv, sizeof(serv)) < 0)
+        fprintf(stderr, "Error de conexion...\n");
+    int fd = open(thread_args->filename, O_CREAT | O_RDWR, 0700);
+    assert(fd > 0);
+    char bytess[PIECE_LEN];
+    bzero(bytess, PIECE_LEN);
+    int filesize = thread_args->filesize;
+    for (int i = 0; i < indice.idxlist.size; i++)
+    {
+        lseek(fd, indice.idxlist.idx[i] * PIECE_LEN, SEEK_SET);
+        write_prot(socki, thread_args->filename, strlen(thread_args->filename));
+        write_prot(socki, to_string(indice.idxlist.idx[i]).c_str(), strlen(to_string(indice.idxlist.idx[i]).c_str()));
+
+        if (indice.idxlist.idx[i] == filesize / PIECE_LEN)
+        {
+            read_prot(socki, bytess);
+            write(fd, bytess, filesize % PIECE_LEN);
+            SHA1((unsigned char *)bytess, sizeof(bytess), mytorrents.torrents[thread_args->torr_idx].pieces[indice.idxlist.idx[i]].hash);
+        }
+        else
+        {
+            read_prot(socki, bytess);
+            write(fd, bytess, PIECE_LEN);
+            SHA1((unsigned char *)bytess, sizeof(bytess), mytorrents.torrents[thread_args->torr_idx].pieces[indice.idxlist.idx[i]].hash);
+        }
+    }
+    close(socki);
+    close(fd);
+    return NULL;
+}
+
 void requestfile(int s, char *buffer)
 {
-
     cout << "Estos son sus torrents: \n";
     showMyTorrents(mytorrents);
     cout << "Que archivo desea descargar?: ";
     bzero(buffer, 255);
     fgets(buffer, 255, stdin);
     int idx = checkTorr(mytorrents, buffer);
-    cout << "DALE " <<  mytorrents.torrents[idx].pieces[0].hash << endl;
     if (idx != -1)
     {
         write_prot(s, "yes", 4);
         Msg torr;
         bzero(&torr, sizeof(Msg));
         setMsgTorr(&torr, mytorrents.torrents[idx]);
-        cout << "hash: " << torr.payload.torrent.pieces[0].hash << endl;
         sendMsg(s, &torr);
+        Msg msg_infoo;
+        recvMsg(s, &msg_infoo);
+        showInfo(msg_infoo.payload.info);
+        int ct = msg_infoo.payload.info.cant;
+        if (ct == 0)
+        {
+            cout << "Nadie tiene el archivo!\n";
+            return;
+        }
+        auto start = std::chrono::high_resolution_clock::now();
+        pthread_t hilos[ct];
+        ArgThreads args_hilos[ct];
+        int idx0;
+        int result;
+
+        for (idx0 = 0; idx0 < ct; idx0++)
+        {
+            args_hilos[idx0].torr_idx = idx;
+            args_hilos[idx0].idxinfo = msg_infoo.payload.info.idxinfo[idx0];
+            bzero(args_hilos[idx0].filename, 50);
+            memcpy(args_hilos[idx0].filename, buffer, strlen(buffer) - 1);
+            cout << "bruh: " << args_hilos[idx0].filename << endl;
+            args_hilos[idx0].filesize = torr.payload.torrent.length;
+            result = pthread_create(&hilos[idx0], NULL, acept_archivo, &args_hilos[idx0]);
+            assert(!result);
+        }
+        for (idx0 = 0; idx0 < ct; idx0++)
+        {
+            result = pthread_join(hilos[idx0], NULL);
+            assert(!result);
+        }
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        std::cout << "Tiempo de descarga: " << duration.count() << " ms." << std::endl;
+
+        update_torr(s, mytorrents.torrents[idx]);
     }
     else
         write_prot(s, "no", 3);
     bzero(buffer, 255);
 }
-
-/* void requestfile(int s)
-{
-    char buffer[255];
-    char name[255];
-    cout << "Estos son sus torrents: \n";
-    showMyTorrents(mytorrents);
-    cout << "Que archivo desea descargar?: ";
-    bzero(buffer, 255);
-    PeerInfoParts peers_con_partes;
-    inic_parts(&peers_con_partes);
-    Msg a_mi;
-    fgets(buffer, 255, stdin);
-    bzero(name, 255);
-    memcpy(name, buffer, strlen(buffer) - 1);
-    for (int i = 0; i < 10; i++)
-    {
-        if (mytorrents.torrents[i].used == 1 && strcmp(mytorrents.torrents[i].name, name) == 0)
-        {
-            write_prot(s, mytorrents.torrents[i].name, strlen(mytorrents.torrents[i].name));
-            recvMsg(s, &a_mi);
-            for (int hj = 0; hj < 10; hj++)
-            {
-                if (a_mi.payload.parts.peers[hj].used)
-                {
-                    setPeerInfo(&peers_con_partes.peers[hj], a_mi.payload.parts.peers[hj].parts, a_mi.payload.parts.peers[hj].address, a_mi.payload.parts.peers[hj].port);
-                }
-            }
-            break;
-        }
-        if (i == 9)
-        {
-            write_prot(s, "no", 2);
-            cout << "No tienes ese torrent.\n";
-            return;
-        }
-    }
-    int fd = open(name, O_CREAT | O_RDWR, 0700);
-    assert(fd > 0);
-    for (int pers = 0; pers < 10; pers++)
-    {
-        if (peers_con_partes.peers[pers].used)
-        {
-            int soc = socket(AF_INET, SOCK_STREAM, 0);
-            struct hostent *server_;
-            struct sockaddr_in serv_addr_;
-            server_ = gethostbyname(peers_con_partes.peers[pers].address);
-            if (server_ == NULL)
-            {
-                fprintf(stderr, "Error, no existe el host.\n");
-                exit(0);
-            }
-            int portno = peers_con_partes.peers[pers].port;
-            bzero((char *)&serv_addr_, sizeof(serv_addr_));
-            serv_addr_.sin_family = AF_INET;
-            bcopy((char *)server_->h_addr, (char *)&serv_addr_.sin_addr.s_addr, server_->h_length);
-            serv_addr_.sin_port = htons(portno);
-            if (connect(soc, (struct sockaddr *)&serv_addr_, sizeof(serv_addr_)) < 0)
-                fprintf(stderr, "Error de conexion...\n");
-            if (server_ == NULL)
-            {
-                fprintf(stderr, "Error, no existe el host.\n");
-                exit(0);
-            }
-            for (int partss = 0; partss < peers_con_partes.peers[pers].parts; partss++)
-            {
-                write_prot(soc, name, strlen(name));
-                write_prot(soc, to_string(partss).c_str(), strlen(to_string(partss).c_str()));
-                char size[20];
-                char idx[20];
-                bzero(idx, 20);
-                bzero(size, 20);
-                read_prot(soc, size);
-                read_prot(soc, idx);
-                lseek(fd, atoi(idx) * PIECE_LEN, SEEK_SET);
-                char byte[atoi(size)];
-                bzero(byte, atoi(size));
-                read_prot(soc, byte);
-                write(fd, byte, atoi(size));
-            }
-        }
-    }
-    cout << "done\n";
-} */
 
 void requestTorrent(int s, TorrentFolder *torrent, Msg *msg)
 {
@@ -351,7 +299,6 @@ int main(int argc, char *argv[])
     Msg msg_torr;
     inic_torrents(&mytorrents);
     Clients clients;
-    inic_pieces(filepieces);
     struct sockaddr_in serv_addr;
     int s = socket(AF_INET, SOCK_STREAM, 0);
 
@@ -406,7 +353,6 @@ label1:
     memcpy(consolename, myname, strlen(myname) - 1);
 
     thread oth(other_peers, atoi(my_port), s);
-    // thread idle(waiting, s);
 
     while (1)
     {
@@ -414,25 +360,8 @@ label1:
         bzero(buffer, 1024);
         fgets(buffer, 1024, stdin);
 
-        /* if (strcmp(buffer, "idle\n") == 0)
-            waiting(s); */
-
-        if (strcmp(buffer, "hashcheck\n") == 0)
-        {
-            cout << "Ingrese el nombre del archivo: ";
-            bzero(buffer, 1024);
-            fgets(buffer, 1024, stdin);
-            char name_hash[255];
-            bzero(name_hash, 255);
-            memcpy(name_hash, buffer, strlen(buffer) - 1);
-            hashcheck(mytorrents, name_hash);
-            bzero(buffer, 1024);
-        }
-
         if (strcmp(buffer, "addfile\n") == 0)
         {
-            /* thread fil(actualizar_piezas, s);
-            { */
             write_prot(s, "add", 4);
             bzero(buffer, 255);
             cout << "Ingrese el nombre del archivo: ";
@@ -465,7 +394,6 @@ label1:
             Torrent torr_buff = createTorrent2(name_2, PIECE_LEN, 1, atoi(ii), atoi(is));
             showTorrInfo(torr_buff);
             addTorrent(&mytorrents, torr_buff);
-            cout << "hash: " << torr_buff.pieces[0].hash << endl;
             Msg msg_torr_buff;
             bzero(&msg_torr_buff, sizeof(Msg));
             setMsgTorr(&msg_torr_buff, torr_buff);
@@ -475,7 +403,6 @@ label1:
 
         if (strcmp(buffer, "mytorr\n") == 0)
         {
-            cout << "helo\n";
             showMyTorrents(mytorrents);
             bzero(buffer, 1024);
         }
@@ -511,7 +438,6 @@ label1:
         }
     }
 
-    // idle.join();
     oth.join();
     close(s);
     return 0;

@@ -21,10 +21,8 @@ char bytes_torr[PIECE_LEN];
 
 typedef enum
 {
-    TYPE_MSG,
     TYPE_TORR,
     TYPE_CLIENTS,
-    TYPE_FILEPIECE
 } Type;
 
 // header de un mensaje
@@ -35,7 +33,7 @@ typedef struct __attribute__((__packed__))
     uint16_t size8;
 } Header;
 
-// protocolo de escritura de chars, donde se envia primero la cantidad de bytes a recibir.
+// protocolo de escritura y lectura, donde se envia primero la cantidad de bytes a recibir.
 
 int write_prot(int soc, const char *buffer, size_t size)
 {
@@ -55,10 +53,7 @@ int read_prot(int socket, char *buffer)
 
     int rd = read(socket, buffer, size);
 
-    if (rd == size)
-        return rd;
-    else
-        return -1;
+    return rd;
 }
 
 typedef struct __attribute__((__packed__))
@@ -90,44 +85,29 @@ typedef struct __attribute__((__packed__))
 typedef struct __attribute__((__packed__))
 {
     int size;
-    int idx[100];
+    int idx[200];
 } IdxList;
 
 typedef struct __attribute__((__packed__))
 {
     int port;
     char address[50];
-    IdxList idx;
+    IdxList idxlist;
 } IdxInfo;
 
 typedef struct __attribute__((__packed__))
 {
     int cant;
-    IdxInfo vatos[100];
+    IdxInfo idxinfo[200];
 } IdxInfoInfo;
 
 typedef struct __attribute__((__packed__))
 {
-    bool used;
-    int port;
-    char address[50];
-    int parts;
-    IdxList idx;
-} PeerInfo;
-
-typedef struct __attribute__((__packed__))
-{
-    PeerInfo peers[10];
-} PeerInfoParts;
-
-typedef struct __attribute__((__packed__))
-{
-    char filename[255];
-    int size;
-    int idx;
-    bool used;
-    bool sent;
-} FilePiece;
+    char filename[50];
+    int torr_idx;
+    int filesize;
+    IdxInfo idxinfo;
+} ArgThreads;
 
 typedef struct __attribute__((__packed__))
 {
@@ -141,16 +121,7 @@ typedef struct __attribute__((__packed__))
     char address[255];
     char username[255];
     TorrentFolder torrents;
-    FilePiece files[1024];
 } Peer;
-
-void inic_files(Peer *peer_)
-{
-    for (int i = 0; i < 1024; i++)
-    {
-        memcpy(&peer_->files[i].filename, "null", strlen("null"));
-    }
-}
 
 typedef struct __attribute__((__packed__))
 {
@@ -164,29 +135,23 @@ typedef struct __attribute__((__packed__))
     union __attribute__((__packed__))
     {
         Torrent torrent;
-        Clients client;
-        FilePiece file;
-        PeerInfoParts parts;
+        IdxInfoInfo info;
     } payload;
 } Msg;
+
+void showInfo(IdxInfoInfo infox)
+{
+    for (int i = 0; i < infox.cant; i++)
+    {
+        cout << infox.idxinfo[i].address << endl;
+        cout << infox.idxinfo[i].port << endl;
+        cout << infox.idxinfo[i].idxlist.size << endl;
+    }
+}
 
 inline static void setSocket(Peer *peer_, int socket)
 {
     peer_->socket = socket;
-}
-
-inline static void setPeerInfo(PeerInfo *peer, int partes, const char *address, int port)
-{
-    peer->used = 1;
-    peer->parts = partes;
-    memcpy(&peer->address, address, strlen(address));
-    peer->port = port;
-}
-
-void inic_parts(PeerInfoParts *parts)
-{
-    for (int i = 0; i < 10; i++)
-        parts->peers[i].used = 0;
 }
 
 inline static void setPeer(Peer *peer_, int port, const char *usern, const char *address)
@@ -194,6 +159,53 @@ inline static void setPeer(Peer *peer_, int port, const char *usern, const char 
     peer_->port = port;
     memcpy(peer_->username, usern, strlen(usern));
     memcpy(peer_->address, address, strlen(address));
+}
+
+bool checkDuplicates(IdxInfoInfo *info, int cant)
+{
+    int index_b = 0;
+    for (int c = 1; c < cant; c++)
+    {
+        if (info->idxinfo[c].idxlist.size > info->idxinfo[index_b].idxlist.size)
+        {
+            index_b = c;
+        }
+    }
+    for (int c = 0; c < cant; c++)
+    {
+        if (c != index_b)
+        {
+            for (int bigl = 0; bigl < info->idxinfo[index_b].idxlist.size; bigl++)
+            {
+                for (int loop = 0; loop < info->idxinfo[c].idxlist.size; loop++)
+                {
+                    if (info->idxinfo[c].idxlist.idx[loop] == info->idxinfo[index_b].idxlist.idx[bigl])
+                    {
+                        for (int smalll = bigl; smalll < info->idxinfo[index_b].idxlist.size - 1; ++smalll)
+                        {
+                            info->idxinfo[index_b].idxlist.idx[smalll] = info->idxinfo[index_b].idxlist.idx[smalll + 1];
+                        }
+                        --info->idxinfo[index_b].idxlist.size;
+                        return 1;
+                    }
+                }
+            }
+        }
+    }
+    return 0;
+}
+
+void ordenInfo(IdxInfoInfo *info, int cant)
+{
+    for (int i = 0; i < cant - 1; ++i) {
+        for (int j = 0; j < cant - i - 1; ++j) {
+            if (info->idxinfo[j].idxlist.size > info->idxinfo[j+1].idxlist.size) {
+                IdxInfo aux = info->idxinfo[j];
+                info->idxinfo[j] = info->idxinfo[j+1];
+                info->idxinfo[j+1]= aux;
+            }
+        }
+    }
 }
 
 int lookTorr(const char *name, Clients *clients, int idx)
@@ -278,7 +290,7 @@ void createTorrent(Torrent *torrent, const char *name, int piece_length_, bool c
             bzero(torrent->pieces[i].hash, 200);
             bzero(bytes_torr, PIECE_LEN);
             read(op, bytes_torr, PIECE_LEN);
-            SHA1((unsigned char *)bytes_torr, sizeof(bytes_torr) - 1, torrent->pieces[i].hash);
+            SHA1((unsigned char *)bytes_torr, sizeof(bytes_torr), torrent->pieces[i].hash);
         }
         close(op);
     }
@@ -337,11 +349,14 @@ Torrent createTorrent2(const char *name, int piece_length_, bool check, int ii, 
     }
     for (int i = 0; i < num_pieces; i++)
         bzero(torrent.pieces[i].hash, 40);
+
     for (int i = ii; i < is; i++)
     {
         bzero(bytes_torr, PIECE_LEN);
         read(op, bytes_torr, PIECE_LEN);
-        SHA1((unsigned char *)bytes_torr, sizeof(bytes_torr) - 1, torrent.pieces[i].hash);
+        SHA1((unsigned char *)bytes_torr, sizeof(bytes_torr), torrent.pieces[i].hash);
+
+        cout << strlen((const char *)torrent.pieces[i].hash) << endl;
     }
     close(op);
     return torrent;
@@ -371,18 +386,6 @@ int checkTorr(TorrentFolder torrens, const char *name)
     return -1;
 }
 
-inline static void setMsgClients(Msg *msg, Clients *clients_)
-{
-    msg->hdr.size8 = 0;
-    msg->hdr.type = TYPE_CLIENTS;
-    for (int i = 0; i < 10; i++)
-    {
-        setSocket(&msg->payload.client.peers[i], clients_->peers[i].socket);
-        setPeer(&msg->payload.client.peers[i], clients_->peers[i].port, clients_->peers[i].username, clients_->peers[i].address);
-        msg->hdr.size8 = msg->hdr.size8 + htons(sizeof(Header) + sizeof(Peer));
-    }
-}
-
 inline static void setMsgTorr(Msg *msg, Torrent torrent_)
 {
     msg->hdr.type = TYPE_TORR;
@@ -390,11 +393,11 @@ inline static void setMsgTorr(Msg *msg, Torrent torrent_)
     msg->hdr.size8 = htons(sizeof(Header) + sizeof(Torrent));
 }
 
-inline static void setMsgParts(Msg *msg, PeerInfoParts *parts)
+inline static void setMsgInfo(Msg *msg, IdxInfoInfo info)
 {
     msg->hdr.type = TYPE_TORR;
-    msg->payload.parts = *parts;
-    msg->hdr.size8 = htons(sizeof(Header) + sizeof(PeerInfoParts));
+    msg->payload.info = info;
+    msg->hdr.size8 = htons(sizeof(Header) + sizeof(IdxInfoInfo));
 }
 
 int getPeerSocket(Peer *peer_)
@@ -415,32 +418,6 @@ inline static const char *getAddress(Peer *peer_)
 int getPort(Peer *peer_)
 {
     return peer_->port;
-}
-
-inline static void setMsgPiece(Msg *msg, FilePiece *filepieces)
-{
-    msg->hdr.size8 = htons(sizeof(Header) + sizeof(FilePiece));
-    msg->hdr.type = TYPE_FILEPIECE;
-    msg->payload.file = *filepieces;
-}
-
-inline static void createPiece(FilePiece *filepiece, const char *filename, int size, int idx)
-{
-    memcpy(filepiece->filename, filename, strlen(filename));
-    filepiece->size = size;
-    filepiece->idx = idx;
-    filepiece->used = 1;
-    filepiece->sent = 0;
-    cout << "Pieza " << idx << " de " << filename << " creada.\n";
-}
-
-inline static void inic_pieces(FilePiece *filepiece)
-{
-    for (int i = 0; i < 1024; i++)
-    {
-        filepiece[i].used = 0;
-        filepiece[i].sent = 1;
-    }
 }
 
 inline static void showClients(Clients *clients)

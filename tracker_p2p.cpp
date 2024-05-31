@@ -39,7 +39,6 @@ int main(int argc, char *argv[])
     {
         setSocket(&clients.peers[i], 0);
         setPeer(&clients.peers[i], 0, "null", "null");
-        inic_pieces(clients.peers[i].files);
     }
 
     if ((cs = socket(AF_INET, SOCK_STREAM, 0)) == 0)
@@ -170,15 +169,57 @@ int main(int argc, char *argv[])
                             Msg torr;
                             bzero(&torr, sizeof(Msg));
                             recvMsg(aux_s, &torr);
-                            int idx = lookTorr(torr.payload.torrent.name, &clients, i);
-                            if (idx != -1)
+                            IdxInfoInfo info;
+                            info.cant = 0;
+
+                            for (int cli = 0; cli < 10; cli++)
                             {
-                                HashCheck hc = torrCompare(clients.peers[idx % 10].torrents.torrents[idx / 10], torr.payload.torrent);
-                                cout << "[ ";
-                                for (int klks = 0; klks < torr.payload.torrent.num_pieces; klks++)
-                                    cout << hc.vector[klks] << " ";
-                                cout << "]\n";
+                                if (cli != i)
+                                {
+                                    for (int tors = 0; tors < 10; tors++)
+                                    {
+                                        if (strcmp(torr.payload.torrent.name, clients.peers[cli].torrents.torrents[tors].name) == 0)
+                                        {
+                                            info.idxinfo[info.cant].idxlist.size = 0;
+                                            info.idxinfo[info.cant].port = clients.peers[cli].port;
+                                            memcpy(info.idxinfo[info.cant].address, clients.peers[cli].address, strlen(clients.peers[cli].address));
+                                            HashCheck hc = torrCompare(clients.peers[cli].torrents.torrents[tors], torr.payload.torrent);
+                                            for (int num = 0; num < torr.payload.torrent.num_pieces; num++)
+                                            {
+                                                if (hc.vector[num])
+                                                {
+                                                    info.idxinfo[info.cant].idxlist.idx[info.idxinfo[info.cant].idxlist.size] = num;
+                                                    info.idxinfo[info.cant].idxlist.size++;
+                                                }
+                                            }
+                                            info.cant++;
+                                        }
+                                    }
+                                }
                             }
+                            bool ch = 1;
+                            int cant = info.cant;
+                            while(ch && cant>1)
+                            {
+                                ch = checkDuplicates(&info, cant);
+                                if(!ch)
+                                {
+                                    ordenInfo(&info, cant);
+                                    cant--;
+                                    ch = 1;
+                                }
+                            }
+                            
+
+                            for (int cant = 0; cant < info.cant; cant++)
+                            {
+                                for(int x = 0 ; x<info.idxinfo[cant].idxlist.size; x++)
+                                    cout << info.idxinfo[cant].idxlist.idx[x] << " ";
+                                cout << endl;
+                            }
+                            Msg msg_info;
+                            setMsgInfo(&msg_info, info);
+                            sendMsg(aux_s, &msg_info);
                         }
                     }
                     if (strcmp(buffer, "add") == 0)
@@ -187,6 +228,16 @@ int main(int argc, char *argv[])
                         recvMsg(aux_s, &msg_torr_buff);
                         addTorrent(&clients.peers[i].torrents, msg_torr_buff.payload.torrent);
                     }
+                    if (strcmp(buffer, "update") == 0)
+                    {
+                        cout << "updating\n";
+                        Msg torr_;
+                        recvMsg(aux_s, &torr_);
+                        int idx = checkTorr(clients.peers[i].torrents, torr_.payload.torrent.name);
+                        bzero(&clients.peers[i].torrents.torrents[idx], sizeof(Torrent));
+                        clients.peers[i].torrents.torrents[idx] = torr_.payload.torrent;
+                    }
+
                     if (strcmp(buffer, "reqt") == 0)
                     {
 
@@ -209,24 +260,6 @@ int main(int argc, char *argv[])
                         else
                         {
                             write_prot(aux_s, "not", 3);
-                        }
-                    }
-                    if (strcmp(buffer, "pieces") == 0)
-                    {
-                        Msg piece_buffer;
-                        recvMsg(aux_s, &piece_buffer);
-                        // assert(piece_buffer.hdr.type == TYPE_FILEPIECE);
-                        for (int j = 0; j < 1024; j++)
-                        {
-
-                            if (clients.peers[i].files[j].used == 0)
-                            {
-                                createPiece(&clients.peers[i].files[j], piece_buffer.payload.file.filename, piece_buffer.payload.file.size,
-                                            piece_buffer.payload.file.idx);
-                                cout << clients.peers[i].username << " tiene la pieza " << piece_buffer.payload.file.idx << " del archivo " << piece_buffer.payload.file.filename
-                                     << " con tamano " << piece_buffer.payload.file.size << endl;
-                                break;
-                            }
                         }
                     }
                     if (strcmp(buffer, "createt") == 0)
