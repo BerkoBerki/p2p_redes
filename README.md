@@ -1,0 +1,1 @@
+Este proyecto corresponde a un trabajo final de la materia Laboratorio de Redes del Instituto Balseiro. Consiste en la implementacion de una red P2P utilizando el protocolo BitTorrent para descarga de archivos.
